@@ -1,0 +1,421 @@
+<!-- static/config.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArXiv Explorer - Configuration</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #8b949e;
+            margin-bottom: 32px;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+
+        .categories {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .category {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .category:hover {
+            border-color: #58a6ff;
+        }
+
+        .category input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .category label {
+            flex: 1;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .category .status {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            background: #238636;
+            color: white;
+        }
+
+        .category .status.not-embedded {
+            background: #6e7681;
+        }
+
+        .estimate {
+            padding: 16px;
+            background: #1c2128;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .estimate strong {
+            color: #58a6ff;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 500;
+            background: #238636;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        button:hover:not(:disabled) {
+            background: #2ea043;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .progress-container {
+            margin-top: 24px;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #21262d;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #238636;
+            transition: width 0.3s;
+        }
+
+        .progress-text {
+            font-size: 13px;
+            color: #8b949e;
+        }
+
+        .log {
+            margin-top: 16px;
+            padding: 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+        }
+
+        .success {
+            color: #56d364;
+        }
+
+        .error {
+            color: #f85149;
+        }
+
+        .nav {
+            margin-bottom: 32px;
+        }
+
+        .nav a {
+            color: #58a6ff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .nav a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">← Back to Explorer</a>
+        </div>
+
+        <h1>📚 ArXiv Explorer Configuration</h1>
+        <p class="subtitle">Select categories to embed and visualize</p>
+
+        <div class="card">
+            <h2>Select Categories</h2>
+            <div class="categories" id="categories"></div>
+
+            <div class="estimate" id="estimate" style="display: none;">
+                Loading estimate...
+            </div>
+
+            <button id="embed-btn" disabled>
+                Re-embed 0 papers
+            </button>
+
+            <div class="progress-container" id="progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div class="progress-text" id="progress-text">Initializing...</div>
+                <div class="log" id="log"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        
+        let categories = [];
+        let categoryStatus = {};
+        let selectedCategories = new Set();
+        let ws = null;
+
+        // Category descriptions
+        const categoryDescriptions = {
+            'cs': 'Computer Science',
+            'physics': 'Physics',
+            'math': 'Mathematics',
+            'astro-ph': 'Astrophysics',
+            'quant-ph': 'Quantum Physics',
+            'cond-mat': 'Condensed Matter',
+            'stat': 'Statistics',
+            'econ': 'Economics',
+            'eess': 'Electrical Engineering',
+            'q-bio': 'Quantitative Biology',
+            'q-fin': 'Quantitative Finance',
+        };
+
+        async function loadCategories() {
+            const res = await fetch('/api/categories');
+            const data = await res.json();
+            
+            categories = data.categories;
+            categoryStatus = data.status;
+            
+            renderCategories();
+        }
+
+        function renderCategories() {
+            $('categories').innerHTML = categories.map(cat => {
+                const status = categoryStatus[cat];
+                const isEmbedded = status.embedded;
+                const count = status.count;
+                
+                return `
+                    <div class="category">
+                        <input type="checkbox" id="cat-${cat}" data-category="${cat}">
+                        <label for="cat-${cat}">
+                            <strong>${cat}</strong><br>
+                            <span style="font-size: 11px; color: #8b949e;">
+                                ${categoryDescriptions[cat] || cat}
+                            </span>
+                        </label>
+                        <span class="status ${isEmbedded ? '' : 'not-embedded'}">
+                            ${isEmbedded ? `${count}` : 'Not embedded'}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+
+            // Add event listeners
+            categories.forEach(cat => {
+                $(`cat-${cat}`).addEventListener('change', updateEstimate);
+            });
+        }
+
+        async function updateEstimate() {
+            selectedCategories.clear();
+            categories.forEach(cat => {
+                if ($(`cat-${cat}`).checked) {
+                    selectedCategories.add(cat);
+                }
+            });
+
+            if (selectedCategories.size === 0) {
+                $('estimate').style.display = 'none';
+                $('embed-btn').disabled = true;
+                $('embed-btn').textContent = 'Re-embed 0 papers';
+                return;
+            }
+
+            $('estimate').style.display = 'block';
+            $('estimate').textContent = 'Estimating...';
+            $('embed-btn').disabled = true;
+
+            try {
+                const res = await fetch('/api/estimate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ categories: Array.from(selectedCategories) }),
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    $('estimate').innerHTML = `<span class="error">Error: ${data.error}</span>`;
+                    return;
+                }
+
+                const total = data.total;
+                const breakdown = Object.entries(data.counts)
+                    .map(([cat, count]) => `${cat}: <strong>${count}</strong>`)
+                    .join(', ');
+
+                $('estimate').innerHTML = `
+                    Total papers: <strong>${total}</strong><br>
+                    Breakdown: ${breakdown}<br>
+                    <span style="color: #8b949e; font-size: 12px;">
+                        Estimated time: ~${Math.ceil(total / 100)} minutes
+                    </span>
+                `;
+
+                $('embed-btn').disabled = false;
+                $('embed-btn').textContent = `Re-embed ${total} papers`;
+
+            } catch (err) {
+                $('estimate').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+
+        function startEmbedding() {
+            if (selectedCategories.size === 0) return;
+
+            $('embed-btn').disabled = true;
+            $('progress').classList.add('active');
+            $('log').innerHTML = '';
+
+            // Connect WebSocket
+            ws = new WebSocket(`ws://${window.location.host}/ws/embed`);
+
+            ws.onopen = () => {
+                log('Connected to server', 'success');
+                ws.send(JSON.stringify({
+                    categories: Array.from(selectedCategories)
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleProgress(data);
+            };
+
+            ws.onerror = (error) => {
+                log('WebSocket error', 'error');
+                console.error(error);
+            };
+
+            ws.onclose = () => {
+                log('Connection closed', 'error');
+            };
+        }
+
+        function handleProgress(data) {
+            if (data.status === 'error') {
+                log(`Error: ${data.error}`, 'error');
+                $('embed-btn').disabled = false;
+                return;
+            }
+
+            if (data.status === 'progress') {
+                const percent = (data.current / data.total) * 100;
+                $('progress-fill').style.width = `${percent}%`;
+                $('progress-text').textContent = data.message;
+                log(data.message);
+            }
+
+            if (data.status === 'embedding') {
+                log(`Starting ${data.category}...`, 'success');
+            }
+
+            if (data.status === 'visualizing') {
+                log('Creating visualization...', 'success');
+            }
+
+            if (data.status === 'complete') {
+                log(`Complete! ${data.total_papers} papers embedded`, 'success');
+                $('progress-fill').style.width = '100%';
+                $('embed-btn').disabled = false;
+                
+                // Reload categories to show updated status
+                setTimeout(() => loadCategories(), 1000);
+            }
+        }
+
+        function log(message, type = '') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            $('log').appendChild(entry);
+            $('log').scrollTop = $('log').scrollHeight;
+        }
+
+        // Event listeners
+        $('embed-btn').addEventListener('click', startEmbedding);
+
+        // Init
+        loadCategories();
+    </script>
+</body>
+</html>
