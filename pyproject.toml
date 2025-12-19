@@ -16,7 +16,8 @@ dependencies = [
     "polars-fastembed[cuda]>=0.1.10",
     "umap-learn>=0.5.9.post2",
     "fastapi>=0.115.0",
-    "uvicorn>=0.34.0",
+    "uvicorn[standard]>=0.34.0",
+    "tqdm>=4.67.1",
 ]
 
 [project.scripts]

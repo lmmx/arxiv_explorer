@@ -15,14 +15,16 @@ from polars_fastembed import register_model
 from pydantic import BaseModel
 
 from .embed_papers import (
-    ARXIV_CATEGORIES,
     CACHE_DIR,
     MODEL_ID,
     OUTPUT_DIR,
     combine_with_umap,
     embed_category,
     get_category_file,
+    get_subject_codes,
     load_dataset,
+    precompute_subject_codes,
+    extract_subject_codes,
 )
 
 BASE_DIR = Path(__file__).parents[2]
@@ -30,6 +32,7 @@ STATIC_DIR = BASE_DIR / "static"
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 df: pl.DataFrame | None = None
+subject_codes: dict[str, str] = {}
 
 
 class EstimateRequest(BaseModel):
@@ -38,10 +41,14 @@ class EstimateRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global df
+    global df, subject_codes
     register_model(
         MODEL_ID, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
     )
+
+    # Precompute subject codes at startup
+    subject_codes = precompute_subject_codes()
+    print(f"Loaded {len(subject_codes)} subject codes")
 
     path = OUTPUT_DIR / "arxiv_embeddings.parquet"
     if path.exists():
@@ -55,19 +62,23 @@ app = FastAPI(title="ArXiv Explorer", lifespan=lifespan)
 
 @app.get("/api/categories")
 def get_categories():
-    """Get categories with embedding status."""
+    """Get fine-grained subject codes with embedding status."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    codes = get_subject_codes()
     status = {}
-    for cat in ARXIV_CATEGORIES:
-        path = get_category_file(cat)
+    
+    for code in codes:
+        path = get_category_file(code)
         if path.exists():
             try:
-                status[cat] = {"embedded": True, "count": len(pl.read_parquet(path))}
+                status[code] = {"embedded": True, "count": len(pl.read_parquet(path))}
             except Exception:
-                status[cat] = {"embedded": False, "count": 0}
+                status[code] = {"embedded": False, "count": 0}
         else:
-            status[cat] = {"embedded": False, "count": 0}
-    return {"categories": ARXIV_CATEGORIES, "status": status}
+            status[code] = {"embedded": False, "count": 0}
+    
+    return {"categories": codes, "status": status}
 
 
 @app.post("/api/estimate")
@@ -78,12 +89,15 @@ async def estimate_count(request: EstimateRequest):
 
     meta = load_dataset(columns=("subjects", "submission_date"))
     meta = meta.filter(pl.col("submission_date").str.contains("2025"))
+    
+    # Add subject_codes column
+    meta = meta.with_columns(
+        pl.col("subjects").map_elements(extract_subject_codes, return_dtype=pl.List(pl.Utf8)).alias("subject_codes")
+    )
 
     counts = {}
     for cat in categories:
-        count = len(
-            meta.filter(pl.col("subjects").str.contains(f"({cat}", literal=True))
-        )
+        count = len(meta.filter(pl.col("subject_codes").list.contains(cat)))
         counts[cat] = count
         print(f"  {cat}: {count}")
 
