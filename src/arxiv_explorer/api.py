@@ -19,12 +19,11 @@ from .embed_papers import (
     MODEL_ID,
     OUTPUT_DIR,
     combine_with_umap,
-    embed_category,
+    extract_subject_codes,
     get_category_file,
     get_subject_codes,
     load_dataset,
     precompute_subject_codes,
-    extract_subject_codes,
 )
 
 BASE_DIR = Path(__file__).parents[2]
@@ -64,10 +63,10 @@ app = FastAPI(title="ArXiv Explorer", lifespan=lifespan)
 def get_categories():
     """Get fine-grained subject codes with embedding status."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     codes = get_subject_codes()
     status = {}
-    
+
     for code in codes:
         path = get_category_file(code)
         if path.exists():
@@ -77,7 +76,7 @@ def get_categories():
                 status[code] = {"embedded": False, "count": 0}
         else:
             status[code] = {"embedded": False, "count": 0}
-    
+
     return {"categories": codes, "status": status}
 
 
@@ -87,13 +86,15 @@ async def estimate_count(request: EstimateRequest):
     categories = request.categories
     print(f"Estimating for categories: {categories}")
 
-    meta = load_dataset(columns=("subjects", "submission_date"))
-    meta = meta.filter(pl.col("submission_date").str.contains("2025"))
-    
+    meta_lf = load_dataset(columns=("subjects", "submission_date"))
+    meta_lf = meta_lf.filter(pl.col("submission_date").str.contains("2025"))
+
     # Add subject_codes column
-    meta = meta.with_columns(
-        pl.col("subjects").map_elements(extract_subject_codes, return_dtype=pl.List(pl.Utf8)).alias("subject_codes")
-    )
+    meta = meta_lf.with_columns(
+        pl.col("subjects")
+        .map_elements(extract_subject_codes, return_dtype=pl.List(pl.Utf8))
+        .alias("subject_codes")
+    ).collect()
 
     counts = {}
     for cat in categories:
@@ -104,48 +105,141 @@ async def estimate_count(request: EstimateRequest):
     return {"counts": counts, "total": sum(counts.values())}
 
 
+def embed_category_sync(category: str, year: str = "2025") -> tuple[str, int]:
+    """Embed papers from a category synchronously. Returns (category, count)."""
+    cache_file = get_category_file(category)
+    if cache_file.exists():
+        count = len(pl.read_parquet(cache_file))
+        print(f"[{category}] Already cached: {count} papers")
+        return (category, count)
+
+    print(f"[{category}] Loading dataset...")
+    lf = load_dataset()
+
+    # Add subject_codes column as list
+    lf = lf.with_columns(
+        pl.col("subjects")
+        .map_elements(extract_subject_codes, return_dtype=pl.List(pl.Utf8))
+        .alias("subject_codes")
+    )
+
+    # Filter by year and category (exact match in list)
+    df = lf.filter(
+        pl.col("submission_date").str.contains(year)
+        & pl.col("subject_codes").list.contains(category)
+    ).collect()
+
+    print(f"[{category}] Found {len(df)} papers to embed")
+
+    if len(df) == 0:
+        return (category, 0)
+
+    df = df.select(
+        "arxiv_id",
+        "title",
+        "authors",
+        "submission_date",
+        "primary_subject",
+        "subject_codes",
+        "abstract",
+        (pl.col("title") + " " + pl.col("abstract")).str.slice(0, 512).alias("text"),
+    )
+
+    print(f"[{category}] Running embedding...")
+    df = df.fastembed.embed(
+        columns="text", model_name=MODEL_ID, output_column="embedding"
+    )
+    df = df.drop("text")
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    df.write_parquet(cache_file)
+    print(f"[{category}] Saved {len(df)} papers to {cache_file}")
+
+    return (category, len(df))
+
+
 @app.websocket("/ws/embed")
 async def embed_websocket(websocket: WebSocket):
     """WebSocket for embedding with progress."""
     global df
     await websocket.accept()
+    print("WebSocket connected")
 
     try:
         data = await websocket.receive_json()
         categories = data.get("categories", [])
+        print(f"Received embed request for: {categories}")
+
         if not categories:
             await websocket.send_json({"error": "No categories selected"})
+            await websocket.close()
             return
 
-        for cat in categories:
-            await websocket.send_json({"status": "embedding", "category": cat})
-            await asyncio.to_thread(embed_category, cat)
+        total_cats = len(categories)
+        total_papers = 0
+
+        for i, cat in enumerate(categories):
+            print(f"Processing category {i+1}/{total_cats}: {cat}")
             await websocket.send_json(
                 {
-                    "status": "progress",
+                    "status": "embedding",
                     "category": cat,
-                    "current": 1,
-                    "total": 1,
-                    "message": f"Done: {cat}",
+                    "message": f"Embedding {cat}...",
                 }
             )
 
+            # Run the blocking embedding in a thread
+            loop = asyncio.get_event_loop()
+            cat_name, count = await loop.run_in_executor(None, embed_category_sync, cat)
+            total_papers += count
+
+            await websocket.send_json(
+                {
+                    "status": "progress",
+                    "category": cat_name,
+                    "current": i + 1,
+                    "total": total_cats,
+                    "count": count,
+                    "message": f"Done: {cat_name} ({count} papers)",
+                }
+            )
+            print(f"Completed {cat_name}: {count} papers")
+
+        print("All categories embedded, running UMAP...")
         await websocket.send_json(
-            {"status": "visualizing", "message": "Running UMAP..."}
+            {
+                "status": "visualizing",
+                "message": "Running UMAP dimensionality reduction...",
+            }
         )
-        df_final = await asyncio.to_thread(combine_with_umap, categories)
+
+        loop = asyncio.get_event_loop()
+        df_final = await loop.run_in_executor(None, combine_with_umap, categories)
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        df_final.write_parquet(OUTPUT_DIR / "arxiv_embeddings.parquet")
+        output_path = OUTPUT_DIR / "arxiv_embeddings.parquet"
+        df_final.write_parquet(output_path)
         df = df_final
 
-        await websocket.send_json({"status": "complete", "total_papers": len(df_final)})
+        print(f"Complete! Saved {len(df_final)} papers to {output_path}")
+
+        await websocket.send_json(
+            {
+                "status": "complete",
+                "total_papers": len(df_final),
+                "message": f"Complete! {len(df_final)} papers embedded and visualized.",
+            }
+        )
 
     except WebSocketDisconnect:
-        pass
+        print("WebSocket disconnected")
     except Exception as e:
+        print(f"WebSocket error: {e}")
         traceback.print_exc()
-        await websocket.send_json({"status": "error", "error": str(e)})
+        try:
+            await websocket.send_json({"status": "error", "error": str(e)})
+        except Exception:
+            pass
 
 
 @app.get("/api/search")

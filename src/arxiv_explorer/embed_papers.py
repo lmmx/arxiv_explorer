@@ -41,9 +41,9 @@ def get_category_file(category: str) -> Path:
     return CACHE_DIR / f"{safe_name}.parquet"
 
 
-@cache
-def load_dataset(columns: tuple[str] | None = None) -> pl.DataFrame:
-    return pl.read_parquet(f"hf://datasets/{HF_DATASET}/train.parquet", columns=columns)
+def load_dataset(columns: tuple[str] | None = None) -> pl.LazyFrame:
+    lf = pl.scan_parquet(f"hf://datasets/{HF_DATASET}/train.parquet")
+    return lf.select(columns) if columns else lf
 
 
 def extract_subject_codes(subjects_str: str) -> list[str]:
@@ -66,7 +66,7 @@ def precompute_subject_codes() -> dict[str, str]:
     df = load_dataset(columns=("subjects",))
 
     subject_map = {}
-    for subj_str in df["subjects"].drop_nulls().unique().to_list():
+    for subj_str in df.get_column("subjects").drop_nulls().unique().to_list():
         # Parse "Machine Learning (cs.LG); Computation (stat.CO)" etc
         parts = [s.strip() for s in subj_str.split(";")]
         for part in parts:
@@ -112,7 +112,7 @@ def embed_category(category: str, year: str = "2025") -> pl.DataFrame:
     df = df.filter(
         pl.col("submission_date").str.contains(year)
         & pl.col("subject_codes").list.contains(category)
-    )
+    ).collect()
 
     if len(df) == 0:
         return pl.DataFrame()
@@ -133,7 +133,7 @@ def embed_category(category: str, year: str = "2025") -> pl.DataFrame:
     )
     print(f"Embedding {len(df)} papers for {category}")
     for _ in tqdm(range(1), desc=f"Embedding {category}", unit="job"):
-        df = df.head(1).fastembed.embed(
+        df = df.fastembed.embed(
             columns="text",
             model_name=MODEL_ID,
             output_column="embedding",
