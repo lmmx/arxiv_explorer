@@ -1,3 +1,4 @@
+# src/arxiv_explorer/routes/categories.py
 """Category routes."""
 
 import polars as pl
@@ -15,8 +16,8 @@ router = APIRouter(prefix="/api", tags=["categories"])
 
 @router.get("/categories")
 def get_categories(
-    year: str = Query(None, description="Year to check status for"),
-    months: str = Query(None, description="Comma-separated months to check"),
+    years: str = Query(None, description="Comma-separated years to check"),
+    months: str = Query(None, description="Comma-separated year-month pairs like 2024-01,2024-02,2025-01"),
 ):
     """Get subject codes with embedding status for specified year/months."""
     codes = get_subject_codes()
@@ -24,15 +25,19 @@ def get_categories(
 
     current_year, current_month = get_current_year_month()
 
-    # Use provided year/months or default to current year
-    check_year = year or current_year
-
+    # Parse year-month pairs
     if months:
-        check_months = [m.strip() for m in months.split(",")]
-    elif check_year == current_year:
-        check_months = [f"{m:02d}" for m in range(1, int(current_month) + 1)]
+        # Format: "2024-01,2024-02,2025-01"
+        year_months = []
+        for ym in months.split(","):
+            ym = ym.strip()
+            if "-" in ym:
+                parts = ym.split("-")
+                if len(parts) == 2:
+                    year_months.append((parts[0], parts[1]))
     else:
-        check_months = [f"{m:02d}" for m in range(1, 13)]
+        # Default to current year's months up to current month
+        year_months = [(current_year, f"{m:02d}") for m in range(1, int(current_month) + 1)]
 
     for code in codes:
         total_count = 0
@@ -41,16 +46,16 @@ def get_categories(
         embedded_month_list = []
         downloaded_month_list = []
 
-        for month in check_months:
-            if is_subject_month_cached(code, check_year, month):
+        for year, month in year_months:
+            if is_subject_month_cached(code, year, month):
                 downloaded_months += 1
-                downloaded_month_list.append(month)
+                downloaded_month_list.append(f"{year}-{month}")
 
-            if is_category_month_embedded(code, check_year, month):
-                count = get_embedded_count(code, check_year, month)
+            if is_category_month_embedded(code, year, month):
+                count = get_embedded_count(code, year, month)
                 total_count += count
                 embedded_months += 1
-                embedded_month_list.append(month)
+                embedded_month_list.append(f"{year}-{month}")
 
         status[code] = {
             "embedded": embedded_months > 0,
@@ -65,6 +70,5 @@ def get_categories(
     return {
         "categories": codes,
         "status": status,
-        "year": check_year,
-        "months": check_months,
+        "year_months": [f"{y}-{m}" for y, m in year_months],
     }

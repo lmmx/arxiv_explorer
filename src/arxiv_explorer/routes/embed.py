@@ -1,3 +1,4 @@
+# src/arxiv_explorer/routes/embed.py
 """Embedding WebSocket route."""
 
 import asyncio
@@ -11,10 +12,10 @@ from ..data import (
     is_subject_month_cached,
 )
 from ..embed_papers import (
-    combine_with_umap,
+    combine_with_umap_multi_year,
     embed_category_month,
     is_category_month_embedded,
-    is_umap_cached,
+    is_umap_cached_multi_year,
 )
 from .state import set_df
 
@@ -30,23 +31,35 @@ async def embed_websocket(websocket: WebSocket):
     try:
         data = await websocket.receive_json()
         categories = data.get("categories", [])
-        year = data.get("year", "2025")
-        months = data.get("months", [])
+        year_months = data.get("year_months", [])  # Format: ["2024-01", "2024-02", "2025-01"]
 
-        print(f"Embed request: {categories}, year={year}, months={months}")
+        print(f"Embed request: {categories}, year_months={year_months}")
 
         if not categories:
             await websocket.send_json({"error": "No categories selected"})
             await websocket.close()
             return
 
-        if not months:
+        if not year_months:
             await websocket.send_json({"error": "No months selected"})
             await websocket.close()
             return
 
+        # Parse year-months
+        parsed_year_months = []
+        for ym in year_months:
+            if "-" in ym:
+                parts = ym.split("-", 1)
+                if len(parts) == 2:
+                    parsed_year_months.append((parts[0], parts[1]))
+
+        if not parsed_year_months:
+            await websocket.send_json({"error": "Invalid year-month format"})
+            await websocket.close()
+            return
+
         # Check if we can use cached UMAP result
-        if is_umap_cached(categories, year, months):
+        if is_umap_cached_multi_year(categories, parsed_year_months):
             await websocket.send_json(
                 {
                     "status": "loading_cache",
@@ -56,7 +69,7 @@ async def embed_websocket(websocket: WebSocket):
 
             loop = asyncio.get_event_loop()
             df_final = await loop.run_in_executor(
-                None, combine_with_umap, categories, year, months, True
+                None, combine_with_umap_multi_year, categories, parsed_year_months, True
             )
 
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -75,13 +88,13 @@ async def embed_websocket(websocket: WebSocket):
             return
 
         # Count what needs to be done
-        total_tasks = len(categories) * len(months)
+        total_tasks = len(categories) * len(parsed_year_months)
         completed_tasks = 0
         total_papers = 0
         skipped_count = 0
 
         for cat in categories:
-            for month in months:
+            for year, month in parsed_year_months:
                 completed_tasks += 1
 
                 # Check if already embedded
@@ -91,6 +104,7 @@ async def embed_websocket(websocket: WebSocket):
                         {
                             "status": "progress",
                             "category": cat,
+                            "year": year,
                             "month": month,
                             "current": completed_tasks,
                             "total": total_tasks,
@@ -106,6 +120,7 @@ async def embed_websocket(websocket: WebSocket):
                         {
                             "status": "downloading",
                             "category": cat,
+                            "year": year,
                             "month": month,
                             "message": f"Downloading {cat} {year}-{month}...",
                         }
@@ -121,6 +136,7 @@ async def embed_websocket(websocket: WebSocket):
                     {
                         "status": "embedding",
                         "category": cat,
+                        "year": year,
                         "month": month,
                         "message": f"Embedding {cat} {year}-{month}...",
                     }
@@ -136,6 +152,7 @@ async def embed_websocket(websocket: WebSocket):
                     {
                         "status": "progress",
                         "category": cat,
+                        "year": year,
                         "month": month,
                         "current": completed_tasks,
                         "total": total_tasks,
@@ -154,7 +171,7 @@ async def embed_websocket(websocket: WebSocket):
 
         loop = asyncio.get_event_loop()
         df_final = await loop.run_in_executor(
-            None, combine_with_umap, categories, year, months, True
+            None, combine_with_umap_multi_year, categories, parsed_year_months, True
         )
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

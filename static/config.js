@@ -1,13 +1,12 @@
-// static/config.js
 const $ = id => document.getElementById(id);
 
 let categories = {};
 let categoryStatus = {};
 let selectedCategories = new Set();
-let selectedYear = null;
-let selectedMonths = new Set();
-let availableMonths = [];
-let cachedMonths = [];
+let selectedYearMonths = new Set(); // Format: "2024-01", "2024-02", etc.
+let availableData = {}; // { year: { months: [], cached: [] } }
+let currentYear = new Date().getFullYear().toString();
+let currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
 let ws = null;
 
 const groupDescriptions = {
@@ -41,117 +40,192 @@ function getGroupPrefix(code) {
     return dot > 0 ? code.substring(0, dot) : code;
 }
 
-// Year/Month selection
-async function loadYears() {
+// Load all available years and their months
+async function loadAvailableData() {
     try {
-        const res = await fetch('/api/available-years');
-        const data = await res.json();
+        const yearsRes = await fetch('/api/available-years');
+        const yearsData = await yearsRes.json();
         
-        const select = $('year-select');
-        select.innerHTML = data.years.map(year => {
-            const cached = data.cached_locally.includes(year);
-            return `<option value="${year}">${year}${cached ? ' ✓' : ''}</option>`;
-        }).join('');
+        // Load months for each year in parallel
+        const monthPromises = yearsData.years.map(async (year) => {
+            const res = await fetch(`/api/available-months/${year}`);
+            const data = await res.json();
+            return { year, data };
+        });
         
-        // Default to most recent year
-        if (data.years.length > 0) {
-            select.value = data.years[0];
-            await loadMonthsForYear(data.years[0]);
+        const results = await Promise.all(monthPromises);
+        
+        for (const { year, data } of results) {
+            availableData[year] = {
+                months: data.available_on_hf,
+                cached: data.cached_locally,
+                isCurrentYear: data.is_current_year,
+                currentMonth: data.current_month
+            };
         }
-    } catch (err) {
-        console.error('Error loading years:', err);
-    }
-}
-
-async function loadMonthsForYear(year) {
-    selectedYear = year;
-    selectedMonths.clear();
-    
-    try {
-        const res = await fetch(`/api/available-months/${year}`);
-        const data = await res.json();
         
-        availableMonths = data.available_on_hf;
-        cachedMonths = data.cached_locally;
-        
-        renderMonthButtons(data);
+        renderCalendar();
         updateTimeStatus();
         loadCategories();
     } catch (err) {
-        console.error('Error loading months:', err);
+        console.error('Error loading available data:', err);
+        $('calendar-container').innerHTML = `<span class="error">Error loading data: ${err.message}</span>`;
     }
 }
 
-function renderMonthButtons(data) {
-    const container = $('month-buttons');
+function renderCalendar() {
+    const container = $('calendar-container');
+    const years = Object.keys(availableData).sort().reverse();
     
-    container.innerHTML = monthNames.map((name, idx) => {
-        const month = String(idx + 1).padStart(2, '0');
-        const available = availableMonths.includes(month);
-        const cached = cachedMonths.includes(month);
-        const isFuture = data.is_current_year && month > data.current_month;
+    container.innerHTML = years.map(year => {
+        const data = availableData[year];
+        const selectedCount = Array.from(selectedYearMonths).filter(ym => ym.startsWith(year + '-')).length;
         
-        let classes = ['month-btn'];
-        if (!available || isFuture) classes.push('unavailable');
-        if (cached) classes.push('cached');
-        
-        return `<button class="${classes.join(' ')}" 
-                        data-month="${month}" 
-                        ${!available || isFuture ? 'disabled' : ''}
-                        onclick="toggleMonth('${month}')">${name}</button>`;
+        return `
+            <div class="year-calendar" data-year="${year}">
+                <div class="year-header" onclick="toggleYear('${year}')">
+                    <h3>${year}</h3>
+                    <span class="year-stats">${selectedCount} selected</span>
+                    <span class="year-toggle">Select all</span>
+                </div>
+                <div class="months-grid">
+                    ${monthNames.map((name, idx) => {
+                        const month = String(idx + 1).padStart(2, '0');
+                        const yearMonth = `${year}-${month}`;
+                        const available = data.months.includes(month);
+                        const cached = data.cached.includes(month);
+                        const isFuture = data.isCurrentYear && month > data.currentMonth;
+                        const isSelected = selectedYearMonths.has(yearMonth);
+                        
+                        let classes = ['month-btn'];
+                        if (!available || isFuture) classes.push('unavailable');
+                        if (cached) classes.push('cached');
+                        if (isSelected) classes.push('selected');
+                        
+                        return `<button class="${classes.join(' ')}" 
+                                        data-year-month="${yearMonth}"
+                                        ${!available || isFuture ? 'disabled' : ''}
+                                        onclick="toggleMonth('${yearMonth}')">${name}</button>`;
+                    }).join('')}
+                </div>
+            </div>
+        `;
     }).join('');
 }
 
-
-function toggleMonth(month) {
-    if (selectedMonths.has(month)) {
-        selectedMonths.delete(month);
+function toggleMonth(yearMonth) {
+    if (selectedYearMonths.has(yearMonth)) {
+        selectedYearMonths.delete(yearMonth);
     } else {
-        selectedMonths.add(month);
-    }
-
-    // Update button state
-    const btn = document.querySelector(`[data-month="${month}"]`);
-    if (btn) {
-        btn.classList.toggle('selected', selectedMonths.has(month));
+        selectedYearMonths.add(yearMonth);
     }
     
+    updateMonthButton(yearMonth);
+    updateYearStats(yearMonth.split('-')[0]);
     updateTimeStatus();
     updateEstimate();
 }
 
-function selectAllMonths() {
-    availableMonths.forEach(month => {
-        selectedMonths.add(month);
-        const btn = document.querySelector(`[data-month="${month}"]`);
-        if (btn && !btn.disabled) btn.classList.add('selected');
+function updateMonthButton(yearMonth) {
+    const btn = document.querySelector(`[data-year-month="${yearMonth}"]`);
+    if (btn) {
+        btn.classList.toggle('selected', selectedYearMonths.has(yearMonth));
+    }
+}
+
+function updateYearStats(year) {
+    const yearCalendar = document.querySelector(`.year-calendar[data-year="${year}"]`);
+    if (yearCalendar) {
+        const selectedCount = Array.from(selectedYearMonths).filter(ym => ym.startsWith(year + '-')).length;
+        yearCalendar.querySelector('.year-stats').textContent = `${selectedCount} selected`;
+    }
+}
+
+function toggleYear(year) {
+    const data = availableData[year];
+    if (!data) return;
+    
+    const yearMonths = data.months
+        .filter(m => !data.isCurrentYear || m <= data.currentMonth)
+        .map(m => `${year}-${m}`);
+    
+    const allSelected = yearMonths.every(ym => selectedYearMonths.has(ym));
+    
+    yearMonths.forEach(ym => {
+        if (allSelected) {
+            selectedYearMonths.delete(ym);
+        } else {
+            selectedYearMonths.add(ym);
+        }
+        updateMonthButton(ym);
+    });
+    
+    updateYearStats(year);
+    updateTimeStatus();
+    updateEstimate();
+}
+
+function selectAll() {
+    Object.entries(availableData).forEach(([year, data]) => {
+        data.months
+            .filter(m => !data.isCurrentYear || m <= data.currentMonth)
+            .forEach(m => {
+                const ym = `${year}-${m}`;
+                selectedYearMonths.add(ym);
+                updateMonthButton(ym);
+            });
+        updateYearStats(year);
     });
     updateTimeStatus();
     updateEstimate();
 }
 
-function selectNoMonths() {
-    selectedMonths.clear();
+function selectNone() {
+    selectedYearMonths.clear();
     document.querySelectorAll('.month-btn').forEach(btn => {
         btn.classList.remove('selected');
     });
+    Object.keys(availableData).forEach(year => updateYearStats(year));
     updateTimeStatus();
     updateEstimate();
 }
 
-function selectYTD() {
-    selectNoMonths();
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
+function selectLast12Months() {
+    selectNone();
     
-    for (let m = 1; m <= currentMonth; m++) {
-        const month = String(m).padStart(2, '0');
-        if (availableMonths.includes(month)) {
-            selectedMonths.add(month);
-            const btn = document.querySelector(`[data-month="${month}"]`);
-            if (btn && !btn.disabled) btn.classList.add('selected');
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const year = d.getFullYear().toString();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const ym = `${year}-${month}`;
+        
+        if (availableData[year]?.months.includes(month)) {
+            selectedYearMonths.add(ym);
+            updateMonthButton(ym);
         }
     }
+    
+    Object.keys(availableData).forEach(year => updateYearStats(year));
+    updateTimeStatus();
+    updateEstimate();
+}
+
+function selectYear(year) {
+    selectNone();
+    
+    const data = availableData[year];
+    if (!data) return;
+    
+    data.months
+        .filter(m => !data.isCurrentYear || m <= data.currentMonth)
+        .forEach(m => {
+            const ym = `${year}-${m}`;
+            selectedYearMonths.add(ym);
+            updateMonthButton(ym);
+        });
+    
+    updateYearStats(year);
     updateTimeStatus();
     updateEstimate();
 }
@@ -159,28 +233,36 @@ function selectYTD() {
 function updateTimeStatus() {
     const status = $('time-status');
     
-    if (!selectedYear) {
-        status.textContent = 'Select a year to see available data';
+    if (selectedYearMonths.size === 0) {
+        status.innerHTML = 'Select months from the calendar above';
         return;
     }
     
-    if (selectedMonths.size === 0) {
-        status.innerHTML = `<strong>${selectedYear}</strong>: Select months to embed`;
-        return;
-    }
+    // Group by year for display
+    const byYear = {};
+    selectedYearMonths.forEach(ym => {
+        const [year, month] = ym.split('-');
+        if (!byYear[year]) byYear[year] = [];
+        byYear[year].push(month);
+    });
     
-    const monthList = Array.from(selectedMonths).sort().map(m => monthNames[parseInt(m) - 1]);
-    status.innerHTML = `<strong>${selectedYear}</strong>: ${monthList.join(', ')} selected (${selectedMonths.size} month${selectedMonths.size > 1 ? 's' : ''})`;
+    const summary = Object.entries(byYear)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([year, months]) => {
+            const monthList = months.sort().map(m => monthNames[parseInt(m) - 1]).join(', ');
+            return `<strong>${year}</strong>: ${monthList}`;
+        })
+        .join('<br>');
+    
+    status.innerHTML = `${selectedYearMonths.size} month${selectedYearMonths.size > 1 ? 's' : ''} selected:<br>${summary}`;
 }
 
 // Categories
 async function loadCategories() {
-    if (!selectedYear) return;
-    
-    const monthsParam = Array.from(selectedMonths).join(',') || availableMonths.join(',');
+    const yearMonthsParam = Array.from(selectedYearMonths).join(',') || '';
     
     try {
-        const res = await fetch(`/api/categories?year=${selectedYear}&months=${monthsParam}`);
+        const res = await fetch(`/api/categories?months=${yearMonthsParam}`);
         const data = await res.json();
         
         categories = data.categories;
@@ -219,8 +301,8 @@ function renderCategories() {
                         let statusText = 'New';
                         
                         if (status.embedded) {
-                            if (status.months_embedded === selectedMonths.size || 
-                                (selectedMonths.size === 0 && status.months_embedded > 0)) {
+                            if (status.months_embedded === selectedYearMonths.size || 
+                                (selectedYearMonths.size === 0 && status.months_embedded > 0)) {
                                 statusClass = '';
                                 statusText = `${status.count} embedded`;
                             } else {
@@ -272,10 +354,10 @@ async function updateEstimate() {
         if (el && el.checked) selectedCategories.add(code);
     }
 
-    if (selectedCategories.size === 0 || selectedMonths.size === 0) {
+    if (selectedCategories.size === 0 || selectedYearMonths.size === 0) {
         $('estimate').style.display = 'none';
         $('embed-btn').disabled = true;
-        $('embed-btn').textContent = selectedMonths.size === 0 
+        $('embed-btn').textContent = selectedYearMonths.size === 0 
             ? 'Select months first' 
             : 'Select categories to embed';
         return;
@@ -291,8 +373,7 @@ async function updateEstimate() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 categories: Array.from(selectedCategories),
-                year: selectedYear,
-                months: Array.from(selectedMonths).sort()
+                year_months: Array.from(selectedYearMonths).sort()
             }),
         });
         const data = await res.json();
@@ -349,7 +430,7 @@ async function updateEstimate() {
 
 // Embedding
 function startEmbedding() {
-    if (selectedCategories.size === 0 || selectedMonths.size === 0) return;
+    if (selectedCategories.size === 0 || selectedYearMonths.size === 0) return;
 
     $('embed-btn').disabled = true;
     $('progress').classList.add('active');
@@ -361,8 +442,7 @@ function startEmbedding() {
         log('Connected to server', 'success');
         ws.send(JSON.stringify({ 
             categories: Array.from(selectedCategories),
-            year: selectedYear,
-            months: Array.from(selectedMonths).sort()
+            year_months: Array.from(selectedYearMonths).sort()
         }));
     };
 
@@ -470,8 +550,7 @@ async function loadCacheSummary() {
 }
 
 // Init
-$('year-select').addEventListener('change', (e) => loadMonthsForYear(e.target.value));
 $('embed-btn').addEventListener('click', startEmbedding);
 
-loadYears();
+loadAvailableData();
 loadCacheSummary();

@@ -1,3 +1,4 @@
+<!-- static/config.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,32 +14,22 @@
         </div>
 
         <h1>📚 ArXiv Explorer Configuration</h1>
-        <p class="subtitle">Download data by month, then embed categories</p>
+        <p class="subtitle">Select months across multiple years, then embed categories</p>
 
         <!-- Time Selection Card -->
         <div class="card">
             <h2>📅 Select Time Range</h2>
-            <div class="time-selector">
-                <div class="year-selector">
-                    <label for="year-select">Year:</label>
-                    <select id="year-select">
-                        <option value="">Loading...</option>
-                    </select>
-                </div>
-                <div class="month-selector">
-                    <label>Months:</label>
-                    <div class="month-buttons" id="month-buttons">
-                        <!-- Months will be populated here -->
-                    </div>
-                    <div class="month-actions">
-                        <button class="small-btn" onclick="selectAllMonths()">Select All</button>
-                        <button class="small-btn" onclick="selectNoMonths()">Clear</button>
-                        <button class="small-btn" onclick="selectYTD()">YTD</button>
-                    </div>
-                </div>
+            <div class="calendar-actions">
+                <button class="small-btn" onclick="selectAll()">Select All</button>
+                <button class="small-btn" onclick="selectNone()">Clear All</button>
+                <button class="small-btn" onclick="selectLast12Months()">Last 12 Months</button>
+                <button class="small-btn" onclick="selectYear(currentYear)">This Year</button>
+            </div>
+            <div class="calendar-container" id="calendar-container">
+                <!-- Years will be rendered here -->
             </div>
             <div class="time-status" id="time-status">
-                Select a year and months to see available data
+                Loading available data...
             </div>
         </div>
 

@@ -47,9 +47,27 @@ def get_selection_hash(categories: list[str], year: str, months: list[str]) -> s
     return hashlib.md5(key.encode()).hexdigest()[:12]
 
 
+def get_selection_hash_multi_year(categories: list[str], year_months: list[tuple[str, str]]) -> str:
+    """Generate a hash for a multi-year selection."""
+    key = json.dumps(
+        {
+            "categories": sorted(categories),
+            "year_months": sorted([f"{y}-{m}" for y, m in year_months]),
+        },
+        sort_keys=True,
+    )
+    return hashlib.md5(key.encode()).hexdigest()[:12]
+
+
 def get_umap_cache_path(categories: list[str], year: str, months: list[str]) -> Path:
     """Get path to cached UMAP result for a selection."""
     selection_hash = get_selection_hash(categories, year, months)
+    return UMAP_CACHE_DIR / f"umap_{selection_hash}.parquet"
+
+
+def get_umap_cache_path_multi_year(categories: list[str], year_months: list[tuple[str, str]]) -> Path:
+    """Get path to cached UMAP result for a multi-year selection."""
+    selection_hash = get_selection_hash_multi_year(categories, year_months)
     return UMAP_CACHE_DIR / f"umap_{selection_hash}.parquet"
 
 
@@ -74,6 +92,25 @@ def is_umap_cached(categories: list[str], year: str, months: list[str]) -> bool:
     return True
 
 
+def is_umap_cached_multi_year(categories: list[str], year_months: list[tuple[str, str]]) -> bool:
+    """Check if UMAP result is cached for a multi-year selection."""
+    cache_path = get_umap_cache_path_multi_year(categories, year_months)
+    if not cache_path.exists():
+        return False
+
+    cache_mtime = cache_path.stat().st_mtime
+
+    for cat in categories:
+        for year, month in year_months:
+            embed_file = get_category_file(cat, year, month)
+            if not embed_file.exists():
+                return False
+            if embed_file.stat().st_mtime > cache_mtime:
+                return False
+
+    return True
+
+
 def load_umap_cache(
     categories: list[str], year: str, months: list[str]
 ) -> pl.DataFrame | None:
@@ -88,12 +125,35 @@ def load_umap_cache(
         return None
 
 
+def load_umap_cache_multi_year(
+    categories: list[str], year_months: list[tuple[str, str]]
+) -> pl.DataFrame | None:
+    """Load cached UMAP result for multi-year selection if valid."""
+    if not is_umap_cached_multi_year(categories, year_months):
+        return None
+
+    cache_path = get_umap_cache_path_multi_year(categories, year_months)
+    try:
+        return pl.read_parquet(cache_path)
+    except Exception:
+        return None
+
+
 def save_umap_cache(
     df: pl.DataFrame, categories: list[str], year: str, months: list[str]
 ) -> None:
     """Save UMAP result to cache."""
     UMAP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cache_path = get_umap_cache_path(categories, year, months)
+    df.write_parquet(cache_path)
+
+
+def save_umap_cache_multi_year(
+    df: pl.DataFrame, categories: list[str], year_months: list[tuple[str, str]]
+) -> None:
+    """Save UMAP result to cache for multi-year selection."""
+    UMAP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = get_umap_cache_path_multi_year(categories, year_months)
     df.write_parquet(cache_path)
 
 
@@ -216,6 +276,19 @@ def get_all_category_files(
     return files
 
 
+def get_all_category_files_multi_year(
+    categories: list[str], year_months: list[tuple[str, str]]
+) -> list[Path]:
+    """Get all embedding files for categories across multiple year-months."""
+    files = []
+    for cat in categories:
+        for year, month in year_months:
+            f = get_category_file(cat, year, month)
+            if f.exists():
+                files.append(f)
+    return files
+
+
 def combine_with_umap(
     categories: list[str],
     year: str,
@@ -256,6 +329,49 @@ def combine_with_umap(
     # Cache the result
     if use_cache:
         save_umap_cache(result, categories, year, months)
+
+    return result
+
+
+def combine_with_umap_multi_year(
+    categories: list[str],
+    year_months: list[tuple[str, str]],
+    use_cache: bool = True,
+) -> pl.DataFrame:
+    """Combine category embeddings across multiple years and add UMAP coordinates."""
+    # Check cache first
+    if use_cache:
+        cached = load_umap_cache_multi_year(categories, year_months)
+        if cached is not None:
+            print(f"Using cached UMAP result ({len(cached)} papers)")
+            return cached
+
+    files = get_all_category_files_multi_year(categories, year_months)
+
+    if not files:
+        raise ValueError("No embedded categories found")
+
+    dfs = [pl.read_parquet(f) for f in files]
+    df = pl.concat(dfs)
+
+    # Deduplicate by arxiv_id
+    df = df.unique(subset=["arxiv_id"])
+
+    print(f"Running UMAP on {len(df)} papers...")
+
+    embeddings = np.array(df["embedding"].to_list(), dtype=np.float32)
+    coords = UMAP(
+        n_components=2, n_neighbors=15, min_dist=0.1, random_state=42
+    ).fit_transform(embeddings)
+
+    result = df.with_columns(
+        pl.Series("x", coords[:, 0]),
+        pl.Series("y", coords[:, 1]),
+    )
+
+    # Cache the result
+    if use_cache:
+        save_umap_cache_multi_year(result, categories, year_months)
 
     return result
 
