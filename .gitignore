@@ -2,3 +2,4 @@
 output/data
 output/embeddings
 output/repo
+output/arxiv_embeddings.parquet
