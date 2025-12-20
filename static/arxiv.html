@@ -6,7 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ArXiv Explorer - 2025+ Papers</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <link rel="stylesheet" href="/static/arxiv.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/filters.css">
+    <link rel="stylesheet" href="/static/css/papers.css">
+    <link rel="stylesheet" href="/static/css/tooltip.css">
 </head>
 <body>
     <header>
@@ -31,13 +35,13 @@
             <div class="filter-panel" id="filter-panel">
                 <div class="filter-section">
                     <div class="filter-section-header">
-                        <span class="filter-section-title">Years</span>
+                        <span class="filter-section-title">Time Range</span>
                         <div class="filter-actions">
                             <button class="filter-action-btn" onclick="Filters.selectAllYears()">All</button>
                             <button class="filter-action-btn" onclick="Filters.selectNoYears()">None</button>
                         </div>
                     </div>
-                    <div class="filter-chips" id="year-filters"></div>
+                    <div id="year-filters"></div>
                 </div>
                 <div class="filter-section">
                     <div class="filter-section-header">
