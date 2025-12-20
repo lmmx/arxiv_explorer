@@ -7,10 +7,11 @@ from .config import MONTH_MAP
 
 
 def extract_subject_code(primary_subject: str) -> str | None:
-    """Extract code like 'cs.AI' from 'Artificial Intelligence (cs.AI)'."""
+    """Extract code like 'cs.AI' or 'gr-qc' from subject string."""
     if not primary_subject:
         return None
-    match = re.search(r"\(([a-z-]+\.[A-Z]+)\)", primary_subject)
+    # Match inside the parentheses
+    match = re.search(r"\(([^)]+)\)", primary_subject)
     return match.group(1) if match else None
 
 
