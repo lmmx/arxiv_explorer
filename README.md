@@ -2,7 +2,7 @@
 
 Explore arXiv papers with semantic search.
 
-Uses the [permutans/arxiv-papers-by-subject](https://huggingface.co/datasets/nick007x/arxiv-papers) dataset,
+Uses the [permutans/arxiv-papers-by-subject](https://huggingface.co/datasets/permutans/arxiv-papers-by-subject) dataset,
 a processed version of the [nick007x/arxiv-papers](https://huggingface.co/datasets/nick007x/arxiv-papers) dataset.
 
 ## Setup
