@@ -7,8 +7,10 @@ const Plot = (function() {
     let xScale, yScale;
     let currentTransform = d3.zoomIdentity;
     let allPapers = [];
+    let displayPapers = []; // THE KEY: only these get rendered
     let searchResults = new Set();
     let highlightedPaperId = null;
+    let hideNonHits = true;
     
     const subjectColors = {
         'cs': '#56d364',
@@ -25,7 +27,6 @@ const Plot = (function() {
         return subjectColors[prefix] || '#8b949e';
     }
 
-    // Zoom behavior
     const zoom = d3.zoom()
         .scaleExtent([0.5, 20])
         .on('zoom', (event) => {
@@ -47,12 +48,8 @@ const Plot = (function() {
         
         dotsGroup.selectAll('circle')
             .attr('r', d => {
-                if (highlightedPaperId === d.arxiv_id) {
-                    return size * 2.5;
-                }
-                if (searchResults.size > 0 && searchResults.has(d.arxiv_id)) {
-                    return size * 1.5;
-                }
+                if (highlightedPaperId === d.arxiv_id) return size * 2.5;
+                if (searchResults.size > 0) return size * 1.5;
                 return size;
             });
     }
@@ -77,37 +74,46 @@ const Plot = (function() {
             .range([padding, height - padding]);
     }
 
+    function updateDisplayPapers() {
+        // This is the key function - determines what gets rendered
+        if (searchResults.size > 0 && hideNonHits) {
+            displayPapers = allPapers.filter(p => searchResults.has(p.arxiv_id));
+        } else {
+            displayPapers = allPapers;
+        }
+    }
+
     function render() {
         const hasSearch = searchResults.size > 0;
-
-        const dots = dotsGroup.selectAll('circle')
-            .data(allPapers, d => d.arxiv_id);
-
-        dots.exit().remove();
-
-        const dotsEnter = dots.enter()
+    
+        const circles = dotsGroup
+            .selectAll('circle')
+            .data(displayPapers, d => d.arxiv_id);
+    
+        // EXIT: remove non-hits
+        circles.exit().remove();
+    
+        // ENTER
+        const enter = circles.enter()
             .append('circle')
             .attr('cx', d => xScale(d.x))
             .attr('cy', d => yScale(d.y))
             .on('mouseenter', handleMouseEnter)
             .on('mouseleave', handleMouseLeave);
-
-        dots.merge(dotsEnter)
-            .attr('cx', d => xScale(d.x))
-            .attr('cy', d => yScale(d.y))
+    
+        // ENTER + UPDATE
+        enter.merge(circles)
             .attr('fill', d => getSubjectColor(d.primary_subject))
             .attr('opacity', d => {
                 if (highlightedPaperId === d.arxiv_id) return 1;
-                if (!hasSearch) return 0.6;
-                return searchResults.has(d.arxiv_id) ? 1 : 0.08;
+                return hasSearch ? 1 : 0.6;
             })
             .attr('stroke', d => {
                 if (highlightedPaperId === d.arxiv_id) return '#fff';
-                if (!hasSearch) return 'none';
-                return searchResults.has(d.arxiv_id) ? '#fff' : 'none';
+                return hasSearch ? '#fff' : 'none';
             })
             .attr('stroke-width', d => highlightedPaperId === d.arxiv_id ? 3 : 1);
-
+    
         updateDotSizes();
     }
 
@@ -124,18 +130,9 @@ const Plot = (function() {
     function highlightPaper(arxivId) {
         highlightedPaperId = arxivId;
         
-        // Update the specific dot
         dotsGroup.selectAll('circle')
-            .attr('opacity', d => {
-                if (d.arxiv_id === arxivId) return 1;
-                if (searchResults.size === 0) return 0.6;
-                return searchResults.has(d.arxiv_id) ? 1 : 0.08;
-            })
-            .attr('stroke', d => {
-                if (d.arxiv_id === arxivId) return '#fff';
-                if (searchResults.size === 0) return 'none';
-                return searchResults.has(d.arxiv_id) ? '#fff' : 'none';
-            })
+            .attr('opacity', d => d.arxiv_id === arxivId ? 1 : (searchResults.size > 0 ? 1 : 0.6))
+            .attr('stroke', d => d.arxiv_id === arxivId ? '#fff' : (searchResults.size > 0 ? '#fff' : 'none'))
             .attr('stroke-width', d => d.arxiv_id === arxivId ? 3 : 1);
         
         updateDotSizes();
@@ -157,7 +154,6 @@ const Plot = (function() {
         const x = xScale(paper.x);
         const y = yScale(paper.y);
 
-        // Calculate transform to center the paper
         const scale = 3;
         const tx = width / 2 - x * scale;
         const ty = height / 2 - y * scale;
@@ -171,6 +167,7 @@ const Plot = (function() {
         async load() {
             const res = await fetch('/api/papers');
             allPapers = await res.json();
+            displayPapers = allPapers; // Initially show all
             initializeScales();
             render();
             return allPapers.length;
@@ -178,12 +175,24 @@ const Plot = (function() {
         
         setSearchResults(results) {
             searchResults = new Set(results.map(r => r.arxiv_id));
+            updateDisplayPapers();
             render();
         },
         
         clearSearchResults() {
             searchResults.clear();
+            updateDisplayPapers();
             render();
+        },
+        
+        setHideNonHits(value) {
+            hideNonHits = value;
+            updateDisplayPapers();
+            render();
+        },
+        
+        getHideNonHits() {
+            return hideNonHits;
         },
         
         highlightPaper,

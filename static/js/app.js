@@ -40,6 +40,13 @@ async function init() {
         const count = await Plot.load();
         $('status').textContent = `${count} papers loaded`;
         Search.init();
+        
+        // Wire up the hide non-hits toggle
+        const toggle = $('hide-non-hits');
+        toggle.checked = Plot.getHideNonHits();
+        toggle.addEventListener('change', (e) => {
+            Plot.setHideNonHits(e.target.checked);
+        });
     } catch (err) {
         $('status').textContent = `Error: ${err.message}`;
     }
