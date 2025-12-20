@@ -227,9 +227,18 @@ const Filters = (function() {
     function filterPaper(paper) {
         // Check year-month
         if (paper.submission_date) {
-            const yearMonth = paper.submission_date.substring(0, 7);
-            if (!selectedYearMonths.has(yearMonth)) {
-                return false;
+            // Parse "22 Jan 2009" format
+            const parts = paper.submission_date.split(' ');
+            if (parts.length === 3) {
+                const monthName = parts[1];
+                const year = parts[2];
+                const monthIndex = monthNames.indexOf(monthName) + 1;
+                const month = String(monthIndex).padStart(2, '0');
+                const yearMonth = `${year}-${month}`;
+
+                if (!selectedYearMonths.has(yearMonth)) {
+                    return false;
+                }
             }
         }
 
