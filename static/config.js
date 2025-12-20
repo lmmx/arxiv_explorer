@@ -55,14 +55,16 @@ function renderMonths() {
     
     container.innerHTML = monthsData.map(m => {
         const name = monthNames[parseInt(m.month) - 1];
-        const statusClass = m.cached ? 'downloaded' : 'not-downloaded';
-        const statusText = m.cached ? `${m.count.toLocaleString()} papers` : 'Not downloaded';
+        const hasData = m.cached_subjects > 0;
+        const statusClass = hasData ? 'downloaded' : 'not-downloaded';
+        const statusText = hasData 
+            ? `${m.cached_subjects} subjects, ${m.count.toLocaleString()} papers` 
+            : (m.available ? 'Available on HF' : 'Not available yet');
         
         return `
             <div class="month-item ${statusClass}" data-month="${m.month}">
                 <span class="month-name">${name} ${m.year}</span>
                 <span class="month-status">${statusText}</span>
-                ${m.cached ? '' : `<button class="month-download-btn" onclick="downloadMonth('${m.year}', '${m.month}')">Download</button>`}
             </div>
         `;
     }).join('');
@@ -71,60 +73,38 @@ function renderMonths() {
 }
 
 function updateDatasetStatus() {
-    const cached = monthsData.filter(m => m.cached);
+    const withData = monthsData.filter(m => m.cached_subjects > 0);
     const total = monthsData.reduce((sum, m) => sum + (m.count || 0), 0);
     
     const status = $('dataset-status');
-    if (cached.length === 0) {
+    if (withData.length === 0) {
         status.className = 'download-status not-downloaded';
         status.innerHTML = `
-            <strong>⚠️ No data downloaded</strong><br>
-            <span style="color: #8b949e;">Download at least one month to get started.</span>
+            <strong>ℹ️ No data downloaded yet</strong><br>
+            <span style="color: #8b949e;">Select categories below and click Embed to download and process papers from HuggingFace.</span>
         `;
     } else {
         status.className = 'download-status downloaded';
         status.innerHTML = `
-            <strong>✓ ${cached.length} month(s) downloaded</strong><br>
-            <span style="color: #8b949e;">${total.toLocaleString()} papers available locally.</span>
+            <strong>✓ ${total.toLocaleString()} papers cached locally</strong><br>
+            <span style="color: #8b949e;">Data available for ${withData.length} month(s).</span>
         `;
-    }
-}
-
-async function downloadMonth(year, month) {
-    const btn = document.querySelector(`.month-item[data-month="${month}"] .month-download-btn`);
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Downloading...';
-    }
-    
-    try {
-        const res = await fetch('/api/download-month', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ year, month }),
-        });
-        const data = await res.json();
-        
-        // Refresh months display
-        await loadMonths();
-    } catch (err) {
-        alert(`Download failed: ${err.message}`);
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Download';
-        }
     }
 }
 
 // Categories
 async function loadCategories() {
-    const res = await fetch('/api/categories');
-    const data = await res.json();
-    
-    categories = data.categories;
-    categoryStatus = data.status;
-    
-    renderCategories();
+    try {
+        const res = await fetch('/api/categories');
+        const data = await res.json();
+        
+        categories = data.categories;
+        categoryStatus = data.status;
+        
+        renderCategories();
+    } catch (err) {
+        $('categories-container').innerHTML = `<span class="error">Error loading categories: ${err.message}</span>`;
+    }
 }
 
 function renderCategories() {
@@ -149,16 +129,20 @@ function renderCategories() {
                 </div>
                 <div class="categories">
                     ${items.map(({ code, fullName }) => {
-                        const status = categoryStatus[code] || { embedded: false, count: 0 };
+                        const status = categoryStatus[code] || { embedded: false, downloaded: false, count: 0 };
+                        const statusClass = status.embedded ? '' : (status.downloaded ? 'downloaded' : 'not-embedded');
+                        const statusText = status.embedded 
+                            ? `${status.count} embedded` 
+                            : (status.downloaded ? `Downloaded (${status.months_downloaded} mo)` : 'New');
                         return `
                             <div class="category">
                                 <input type="checkbox" id="cat-${code}" data-category="${code}">
                                 <label for="cat-${code}">
                                     <strong>${code}</strong>
-                                    ${fullName}
+                                    ${fullName !== code ? fullName : ''}
                                 </label>
-                                <span class="status ${status.embedded ? '' : 'not-embedded'}">
-                                    ${status.embedded ? status.count : 'New'}
+                                <span class="status ${statusClass}">
+                                    ${statusText}
                                 </span>
                             </div>
                         `;
@@ -193,15 +177,7 @@ async function updateEstimate() {
     if (selectedCategories.size === 0) {
         $('estimate').style.display = 'none';
         $('embed-btn').disabled = true;
-        $('embed-btn').textContent = 'Embed 0 papers';
-        return;
-    }
-
-    const cachedMonths = monthsData.filter(m => m.cached);
-    if (cachedMonths.length === 0) {
-        $('estimate').style.display = 'block';
-        $('estimate').innerHTML = `<span class="warning">⚠️ Download at least one month first.</span>`;
-        $('embed-btn').disabled = true;
+        $('embed-btn').textContent = 'Select categories to embed';
         return;
     }
 
@@ -228,15 +204,34 @@ async function updateEstimate() {
             .map(([cat, count]) => `${cat}: <strong>${count}</strong>`)
             .join(', ');
 
-        $('estimate').innerHTML = `
-            Total papers: <strong>${total.toLocaleString()}</strong> 
-            <span style="color: #8b949e;">(from ${data.months_checked} month(s))</span><br>
-            <span style="font-size: 12px; color: #8b949e;">${breakdown || 'No papers found'}</span><br>
-            <span style="color: #8b949e; font-size: 12px;">Estimated time: ~${Math.ceil(total / 500)} minutes</span>
-        `;
+        let estimateHtml = '';
+        
+        if (total > 0) {
+            estimateHtml = `
+                Cached papers: <strong>${total.toLocaleString()}</strong><br>
+                <span style="font-size: 12px; color: #8b949e;">${breakdown}</span><br>
+                <span style="color: #8b949e; font-size: 12px;">Estimated time: ~${Math.ceil(total / 500)} minutes</span>
+            `;
+        } else {
+            estimateHtml = `
+                <span style="color: #d29922;">No cached data for selected categories.</span><br>
+                <span style="font-size: 12px; color: #8b949e;">
+                    Data will be downloaded from HuggingFace when you click Embed.<br>
+                    Selected: ${selectedCategories.size} categories
+                </span>
+            `;
+        }
+        
+        if (data.note) {
+            estimateHtml += `<br><span style="color: #8b949e; font-size: 12px;">${data.note}</span>`;
+        }
 
-        $('embed-btn').disabled = total === 0;
-        $('embed-btn').textContent = `Embed ${total.toLocaleString()} papers`;
+        $('estimate').innerHTML = estimateHtml;
+
+        $('embed-btn').disabled = false;
+        $('embed-btn').textContent = total > 0 
+            ? `Embed ${total.toLocaleString()} papers`
+            : `Download & Embed ${selectedCategories.size} categories`;
 
     } catch (err) {
         $('estimate').innerHTML = `<span class="error">Error: ${err.message}</span>`;
@@ -277,19 +272,33 @@ function handleProgress(data) {
         log(data.message);
     }
 
+    if (data.status === 'downloading') {
+        log(`Downloading ${data.category} from HuggingFace...`, 'warning');
+        $('progress-text').textContent = data.message;
+    }
+
     if (data.status === 'embedding') {
-        log(`Starting ${data.category}...`, 'success');
+        log(`Embedding ${data.category}...`, 'success');
+        $('progress-text').textContent = data.message;
     }
 
     if (data.status === 'visualizing') {
-        log('Creating visualization...', 'success');
+        log('Creating UMAP visualization...', 'success');
+        $('progress-text').textContent = data.message;
     }
 
     if (data.status === 'complete') {
         log(`Complete! ${data.total_papers.toLocaleString()} papers embedded`, 'success');
         $('progress-fill').style.width = '100%';
+        $('progress-text').textContent = `Done! ${data.total_papers.toLocaleString()} papers ready.`;
         $('embed-btn').disabled = false;
-        setTimeout(() => loadCategories(), 1000);
+        $('embed-btn').textContent = 'Embedding complete!';
+        
+        // Refresh data after a short delay
+        setTimeout(() => {
+            loadCategories();
+            loadMonths();
+        }, 1000);
     }
 }
 

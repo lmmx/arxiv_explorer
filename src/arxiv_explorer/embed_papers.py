@@ -11,9 +11,9 @@ from umap import UMAP
 
 from .data import (
     get_current_year_month,
-    is_month_cached,
-    download_month,
-    load_month,
+    is_subject_month_cached,
+    download_subject_month,
+    load_subject_month,
     get_subject_codes,
     OUTPUT_DIR,
 )
@@ -48,28 +48,35 @@ def embed_category_month(category: str, year: str, month: str) -> int:
         print(f"[{category}] {year}-{month} cached: {count} papers")
         return count
     
-    # Ensure month data is downloaded
-    if not is_month_cached(year, month):
-        download_month(year, month)
+    # Ensure subject/month data is downloaded
+    if not is_subject_month_cached(category, year, month):
+        download_subject_month(category, year, month)
     
-    if not is_month_cached(year, month):
-        print(f"[{category}] {year}-{month}: no data")
+    if not is_subject_month_cached(category, year, month):
+        print(f"[{category}] {year}-{month}: no data available")
         return 0
     
-    # Load and filter by category
-    lf = load_month(year, month)
-    lf = lf.with_columns(
-        pl.col("subjects")
-        .map_elements(extract_subject_codes, return_dtype=pl.List(pl.Utf8))
-        .alias("subject_codes")
-    )
-    lf = lf.filter(pl.col("subject_codes").list.contains(category))
-    
+    # Load directly from the subject-specific file
+    # The partitioned dataset already has papers filtered by subject
+    lf = load_subject_month(category, year, month)
     df = lf.collect()
     
     if len(df) == 0:
         print(f"[{category}] {year}-{month}: 0 papers")
         return 0
+
+    # Add subject_codes column for compatibility
+    if "subjects" in df.columns:
+        df = df.with_columns(
+            pl.col("subjects")
+            .map_elements(extract_subject_codes, return_dtype=pl.List(pl.Utf8))
+            .alias("subject_codes")
+        )
+    else:
+        # If no subjects column, create one with just the category
+        df = df.with_columns(
+            pl.lit([category]).alias("subject_codes")
+        )
 
     df = df.select(
         "arxiv_id",
@@ -161,18 +168,17 @@ def combine_with_umap(categories: list[str], year: str = "2025") -> pl.DataFrame
 
 def run():
     """CLI entry point."""
-    from .data import precompute_subject_codes, download_month
+    from .data import precompute_subject_codes, download_subject_month
     
     OUTPUT_DIR.mkdir(exist_ok=True)
     precompute_subject_codes()
     
-    # Download current month
+    # Download current month for a few categories
     year, month = get_current_year_month()
-    download_month(year, month)
-    
     categories = ["cs.AI", "cs.LG", "cs.CL"]
     
     for cat in categories:
+        download_subject_month(cat, year, month)
         embed_category(cat, year)
     
     print("Running UMAP...")
