@@ -1,3 +1,4 @@
+# src/arxiv_explorer/api.py
 """FastAPI server for ArXiv Explorer."""
 
 from contextlib import asynccontextmanager
@@ -11,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from polars_fastembed import register_model
 
 from .data import OUTPUT_DIR, get_subject_codes
-from .embed_papers import MODEL_ID
+from .embed_papers import MODEL_ID, add_year_month_column
 from .routes import (
     categories_router,
     months_router,
@@ -40,8 +41,16 @@ async def lifespan(app: FastAPI):
     path = OUTPUT_DIR / "arxiv_embeddings.parquet"
     if path.exists():
         df = pl.read_parquet(path)
+        # Ensure year_month column exists
+        if "year_month" not in df.columns:
+            print("Adding year_month column to loaded data...")
+            df = add_year_month_column(df)
         set_df(df)
         print(f"Loaded {len(df)} papers")
+        # Debug: show available year_months
+        if "year_month" in df.columns:
+            year_months = df.select("year_month").unique().to_series().to_list()
+            print(f"Available year_months: {sorted([ym for ym in year_months if ym])}")
     yield
 
 

@@ -2,6 +2,8 @@
 const Search = (function() {
     const $ = id => document.getElementById(id);
     
+    let lastQuery = '';  // Track the last search query
+    
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
@@ -54,8 +56,9 @@ const Search = (function() {
         });
     }
 
-    async function search() {
-        const q = $('q').value.trim();
+    async function search(query = null) {
+        const q = query !== null ? query : $('q').value.trim();
+        lastQuery = q;
         
         if (!q) {
             Plot.clearSearchResults();
@@ -68,7 +71,12 @@ const Search = (function() {
         $('btn').disabled = true;
 
         try {
-            const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&k=50`);
+            // Build URL with filters
+            const filterParams = Filters.getFilterParams();
+            filterParams.set('q', q);
+            filterParams.set('k', '50');
+            
+            const res = await fetch(`/api/search?${filterParams.toString()}`);
             const results = await res.json();
 
             renderResults(results, q);
@@ -82,6 +90,7 @@ const Search = (function() {
     }
 
     function clear() {
+        lastQuery = '';
         Plot.clearSearchResults();
         $('results').innerHTML = '';
         $('results-header').textContent = 'Search results';
@@ -96,13 +105,25 @@ const Search = (function() {
             $('status').textContent = `${displayed} / ${total} papers`;
         }
     }
+    
+    function hasActiveQuery() {
+        return lastQuery.length > 0;
+    }
+    
+    async function rerunSearch() {
+        if (lastQuery) {
+            await search(lastQuery);
+        }
+    }
 
     return {
         search,
         clear,
         updateStatus,
+        hasActiveQuery,
+        rerunSearch,
         init() {
-            $('btn').onclick = search;
+            $('btn').onclick = () => search();
             $('q').onkeypress = e => { if (e.key === 'Enter') search(); };
             $('q').oninput = debounce(() => {
                 if ($('q').value.trim() === '') clear();

@@ -24,6 +24,40 @@ MODEL_ID = "SnowflakeArcticEmbedXS"
 EMBEDDINGS_DIR = OUTPUT_DIR / "embeddings"
 UMAP_CACHE_DIR = OUTPUT_DIR / "umap_cache"
 
+# Month name to number mapping
+MONTH_NAME_TO_NUM = {
+    "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
+    "May": "05", "Jun": "06", "Jul": "07", "Aug": "08",
+    "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12",
+}
+
+
+def parse_submission_date_to_year_month(date_str: str) -> str | None:
+    """Parse '22 Jan 2009' format to '2009-01' format."""
+    if not date_str:
+        return None
+    parts = date_str.split()
+    if len(parts) != 3:
+        return None
+    month_name = parts[1]
+    year = parts[2]
+    month_num = MONTH_NAME_TO_NUM.get(month_name)
+    if not month_num:
+        return None
+    return f"{year}-{month_num}"
+
+
+def add_year_month_column(df: pl.DataFrame) -> pl.DataFrame:
+    """Add year_month column derived from submission_date."""
+    if "submission_date" not in df.columns:
+        return df.with_columns(pl.lit(None).alias("year_month"))
+    
+    return df.with_columns(
+        pl.col("submission_date")
+        .map_elements(parse_submission_date_to_year_month, return_dtype=pl.Utf8)
+        .alias("year_month")
+    )
+
 
 def get_category_file(category: str, year: str, month: str) -> Path:
     """Get path for category embeddings, partitioned by year/month."""
@@ -225,6 +259,9 @@ def embed_category_month(
         (pl.col("title") + " " + pl.col("abstract")).str.slice(0, 512).alias("text"),
     )
 
+    # Add year_month column
+    df = add_year_month_column(df)
+
     print(f"[{category}] Embedding {len(df)} papers for {year}-{month}...")
 
     register_model(
@@ -301,6 +338,9 @@ def combine_with_umap(
         cached = load_umap_cache(categories, year, months)
         if cached is not None:
             print(f"Using cached UMAP result ({len(cached)} papers)")
+            # Ensure year_month column exists in cached data
+            if "year_month" not in cached.columns:
+                cached = add_year_month_column(cached)
             return cached
 
     files = get_all_category_files(categories, year, months)
@@ -313,6 +353,10 @@ def combine_with_umap(
 
     # Deduplicate by arxiv_id
     df = df.unique(subset=["arxiv_id"])
+
+    # Ensure year_month column exists
+    if "year_month" not in df.columns:
+        df = add_year_month_column(df)
 
     print(f"Running UMAP on {len(df)} papers...")
 
@@ -344,6 +388,9 @@ def combine_with_umap_multi_year(
         cached = load_umap_cache_multi_year(categories, year_months)
         if cached is not None:
             print(f"Using cached UMAP result ({len(cached)} papers)")
+            # Ensure year_month column exists in cached data
+            if "year_month" not in cached.columns:
+                cached = add_year_month_column(cached)
             return cached
 
     files = get_all_category_files_multi_year(categories, year_months)
@@ -356,6 +403,10 @@ def combine_with_umap_multi_year(
 
     # Deduplicate by arxiv_id
     df = df.unique(subset=["arxiv_id"])
+
+    # Ensure year_month column exists
+    if "year_month" not in df.columns:
+        df = add_year_month_column(df)
 
     print(f"Running UMAP on {len(df)} papers...")
 

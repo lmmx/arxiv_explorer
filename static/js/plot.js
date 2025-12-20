@@ -6,8 +6,7 @@ const Plot = (function() {
     
     let xScale, yScale;
     let currentTransform = d3.zoomIdentity;
-    let allPapers = [];
-    let displayPapers = [];
+    let allPapers = [];        // All papers from current API response
     let searchResults = new Set();
     let highlightedPaperId = null;
     let hideNonHits = true;
@@ -47,6 +46,8 @@ const Plot = (function() {
 
         svg.attr('width', width).attr('height', height);
 
+        if (allPapers.length === 0) return;
+
         const xExtent = d3.extent(allPapers, d => d.x);
         const yExtent = d3.extent(allPapers, d => d.y);
 
@@ -59,20 +60,17 @@ const Plot = (function() {
             .range([padding, height - padding]);
     }
 
-    function updateDisplayPapers() {
-        // Apply filters first
-        let filtered = allPapers.filter(p => Filters.filterPaper(p));
-        
-        // Then apply search filter if active
+    function getDisplayPapers() {
+        // If we have search results and hideNonHits, only show those
         if (searchResults.size > 0 && hideNonHits) {
-            displayPapers = filtered.filter(p => searchResults.has(p.arxiv_id));
-        } else {
-            displayPapers = filtered;
+            return allPapers.filter(p => searchResults.has(p.arxiv_id));
         }
+        return allPapers;
     }
 
     function render() {
         const hasSearch = searchResults.size > 0;
+        const displayPapers = getDisplayPapers();
     
         const circles = dotsGroup
             .selectAll('circle')
@@ -89,8 +87,10 @@ const Plot = (function() {
             .on('mouseenter', handleMouseEnter)
             .on('mouseleave', handleMouseLeave);
     
-        // ENTER + UPDATE - use CategoryColors for coloring
+        // ENTER + UPDATE
         enter.merge(circles)
+            .attr('cx', d => xScale(d.x))
+            .attr('cy', d => yScale(d.y))
             .attr('fill', d => CategoryColors.getColor(d.primary_subject))
             .attr('opacity', d => {
                 if (highlightedPaperId === d.arxiv_id) return 0.9;
@@ -151,40 +151,53 @@ const Plot = (function() {
             .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     }
 
-    function applyFilters() {
-        updateDisplayPapers();
+    // Load papers from API with optional filters
+    async function loadPapers(filterParams) {
+        let url = '/api/papers';
+        if (filterParams && filterParams.toString()) {
+            url += '?' + filterParams.toString();
+        }
+        
+        const res = await fetch(url);
+        allPapers = await res.json();
+        initializeScales();
         render();
+        return allPapers.length;
     }
 
     return {
         async load() {
-            const res = await fetch('/api/papers');
-            allPapers = await res.json();
-            displayPapers = allPapers;
-            initializeScales();
-            
+            const count = await loadPapers();
             // Initialize filters with paper data
-            Filters.init(allPapers, applyFilters);
+            Filters.init(allPapers, () => this.applyFilters());
+            return count;
+        },
+        
+        async applyFilters() {
+            // Re-fetch papers from server with new filters
+            const filterParams = Filters.getFilterParams();
+            await loadPapers(filterParams);
             
-            render();
-            return allPapers.length;
+            // If there was a search, re-run it with the new filters
+            if (Search.hasActiveQuery()) {
+                await Search.rerunSearch();
+            }
+            
+            Search.updateStatus();
         },
         
         setSearchResults(results) {
             searchResults = new Set(results.map(r => r.arxiv_id));
-            updateDisplayPapers();
             render();
         },
         
         clearSearchResults() {
             searchResults.clear();
-            updateDisplayPapers();
             render();
         },
         
         setHideNonHits(value) {
             hideNonHits = value;
-            updateDisplayPapers();
             render();
         },
         
@@ -195,7 +208,6 @@ const Plot = (function() {
         highlightPaper,
         unhighlightPaper,
         panToPaper,
-        applyFilters,
         
         resize() {
             initializeScales();
@@ -208,11 +220,15 @@ const Plot = (function() {
         },
         
         getDisplayedCount() {
-            return displayPapers.length;
+            return getDisplayPapers().length;
         },
         
         getTotalCount() {
             return allPapers.length;
+        },
+        
+        getAllPapers() {
+            return allPapers;
         }
     };
 })();

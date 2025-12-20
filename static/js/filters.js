@@ -1,5 +1,5 @@
 // static/js/filters.js
-// Filter panel for years and categories with calendar-style month selection
+// Filter panel for years and categories - delegates filtering to server
 
 const Filters = (function() {
     const $ = id => document.getElementById(id);
@@ -7,7 +7,7 @@ const Filters = (function() {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
                         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    // Available data from the loaded papers
+    // Available data from the loaded papers (derived from year_month column)
     let availableYearMonths = new Map(); // "2024-01" -> count
     let availableCategories = new Map(); // category -> count
     
@@ -24,28 +24,15 @@ const Filters = (function() {
         onFilterChange = callback;
         
         // Extract available year-months and categories from papers
+        // Now uses the year_month column from the server
         availableYearMonths.clear();
         availableCategories.clear();
         
         papers.forEach(p => {
-            // Extract year-month from submission_date (format: "22 Jan 2009")
-            if (p.submission_date) {
-                // Split the date string into parts: ["22", "Jan", "2009"]
-                const parts = p.submission_date.split(' ');
-                if (parts.length === 3) {
-                    const day = parts[0];
-                    const monthName = parts[1];
-                    const year = parts[2];
-        
-                    // Convert month name to month number (e.g., "Jan" -> "01")
-                    const monthIndex = monthNames.indexOf(monthName) + 1;
-                    const month = String(monthIndex).padStart(2, '0');
-        
-                    // Build year-month string: "2009-01"
-                    const yearMonth = `${year}-${month}`;
-                    const count = availableYearMonths.get(yearMonth) || 0;
-                    availableYearMonths.set(yearMonth, count + 1);
-                }
+            // Use the pre-computed year_month from server
+            if (p.year_month) {
+                const count = availableYearMonths.get(p.year_month) || 0;
+                availableYearMonths.set(p.year_month, count + 1);
             }
         
             // Count categories
@@ -224,40 +211,23 @@ const Filters = (function() {
         }
     }
 
-    function filterPaper(paper) {
-        // Check year-month
-        if (paper.submission_date) {
-            // Parse "22 Jan 2009" format
-            const parts = paper.submission_date.split(' ');
-            if (parts.length === 3) {
-                const monthName = parts[1];
-                const year = parts[2];
-                const monthIndex = monthNames.indexOf(monthName) + 1;
-                const month = String(monthIndex).padStart(2, '0');
-                const yearMonth = `${year}-${month}`;
-
-                if (!selectedYearMonths.has(yearMonth)) {
-                    return false;
-                }
-            }
+    // Build query params for API calls
+    function getFilterParams() {
+        const params = new URLSearchParams();
+        
+        if (selectedYearMonths.size > 0 && selectedYearMonths.size < selectableYearMonths.size) {
+            params.set('year_months', Array.from(selectedYearMonths).join(','));
         }
-
-        // Check category
-        if (paper.primary_subject) {
-            if (!selectedCategories.has(paper.primary_subject)) {
-                return false;
-            }
+        
+        if (selectedCategories.size > 0 && selectedCategories.size < availableCategories.size) {
+            params.set('categories', Array.from(selectedCategories).join(','));
         }
-
-        return true;
+        
+        return params;
     }
 
-    function getSelectedYears() {
-        const years = new Set();
-        for (const ym of selectedYearMonths) {
-            years.add(ym.substring(0, 4));
-        }
-        return years;
+    function getSelectedYearMonths() {
+        return new Set(selectedYearMonths);
     }
 
     function getSelectedCategories() {
@@ -273,8 +243,8 @@ const Filters = (function() {
         selectNoYears,
         selectAllCategories,
         selectNoCategories,
-        filterPaper,
-        getSelectedYears,
+        getFilterParams,
+        getSelectedYearMonths,
         getSelectedCategories
     };
 })();
