@@ -13,6 +13,7 @@ from .config import (
 )
 from .hub import (
     list_subjects,
+    list_years,
     list_years_for_subject,
     list_months_for_subject_year,
     get_file_info,
@@ -27,7 +28,11 @@ from .cache import (
     download_and_cache,
     download_subject_month,
     list_cached_subjects,
+    list_cached_years,
+    list_cached_months,
+    get_cache_summary,
     get_available_months,
+    get_available_years,
     get_subject_codes,
     precompute_subject_codes,
     download_month,
@@ -37,6 +42,12 @@ from .loader import (
     load_subject_month,
     load_subjects_month,
     load_subject_year,
+)
+from .estimator import (
+    estimate_from_hub,
+    get_count,
+    get_counts_for_selection,
+    estimate_embedding_time,
 )
 
 __all__ = [
@@ -51,6 +62,7 @@ __all__ = [
     "get_current_year_month",
     # Hub
     "list_subjects",
+    "list_years",
     "list_years_for_subject",
     "list_months_for_subject_year",
     "get_file_info",
@@ -64,7 +76,11 @@ __all__ = [
     "download_and_cache",
     "download_subject_month",
     "list_cached_subjects",
+    "list_cached_years",
+    "list_cached_months",
+    "get_cache_summary",
     "get_available_months",
+    "get_available_years",
     "get_subject_codes",
     "precompute_subject_codes",
     "download_month",
@@ -73,4 +89,9 @@ __all__ = [
     "load_subject_month",
     "load_subjects_month",
     "load_subject_year",
+    # Estimator
+    "estimate_from_hub",
+    "get_count",
+    "get_counts_for_selection",
+    "estimate_embedding_time",
 ]

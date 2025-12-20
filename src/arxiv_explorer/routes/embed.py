@@ -8,10 +8,14 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ..data import (
     OUTPUT_DIR,
     download_subject_month,
-    get_current_year_month,
     is_subject_month_cached,
 )
-from ..embed_papers import combine_with_umap, embed_category
+from ..embed_papers import (
+    combine_with_umap,
+    embed_category_month,
+    is_category_month_embedded,
+    is_umap_cached,
+)
 from .state import set_df
 
 router = APIRouter(tags=["embed"])
@@ -27,79 +31,131 @@ async def embed_websocket(websocket: WebSocket):
         data = await websocket.receive_json()
         categories = data.get("categories", [])
         year = data.get("year", "2025")
-        month = data.get("month")
+        months = data.get("months", [])
 
-        print(f"Embed request: {categories}, year={year}, month={month}")
+        print(f"Embed request: {categories}, year={year}, months={months}")
 
         if not categories:
             await websocket.send_json({"error": "No categories selected"})
             await websocket.close()
             return
 
-        total_cats = len(categories)
-        total_papers = 0
+        if not months:
+            await websocket.send_json({"error": "No months selected"})
+            await websocket.close()
+            return
 
-        for i, cat in enumerate(categories):
-            print(f"Processing {i+1}/{total_cats}: {cat}")
-
+        # Check if we can use cached UMAP result
+        if is_umap_cached(categories, year, months):
             await websocket.send_json(
                 {
-                    "status": "downloading",
-                    "category": cat,
-                    "message": f"Downloading {cat}...",
+                    "status": "loading_cache",
+                    "message": "Loading cached embeddings...",
                 }
             )
 
             loop = asyncio.get_event_loop()
+            df_final = await loop.run_in_executor(
+                None, combine_with_umap, categories, year, months, True
+            )
 
-            current_year, current_month = get_current_year_month()
-            if month:
-                months_to_process = [month]
-            elif year == current_year:
-                months_to_process = [
-                    f"{m:02d}" for m in range(1, int(current_month) + 1)
-                ]
-            else:
-                months_to_process = [f"{m:02d}" for m in range(1, 13)]
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            output_path = OUTPUT_DIR / "arxiv_embeddings.parquet"
+            df_final.write_parquet(output_path)
+            set_df(df_final)
 
-            for m in months_to_process:
-                if not is_subject_month_cached(cat, year, m):
-                    await loop.run_in_executor(
-                        None, download_subject_month, cat, year, m
+            await websocket.send_json(
+                {
+                    "status": "complete",
+                    "total_papers": len(df_final),
+                    "message": f"Loaded from cache! {len(df_final)} papers ready.",
+                    "from_cache": True,
+                }
+            )
+            return
+
+        # Count what needs to be done
+        total_tasks = len(categories) * len(months)
+        completed_tasks = 0
+        total_papers = 0
+        skipped_count = 0
+
+        for cat in categories:
+            for month in months:
+                completed_tasks += 1
+
+                # Check if already embedded
+                if is_category_month_embedded(cat, year, month):
+                    skipped_count += 1
+                    await websocket.send_json(
+                        {
+                            "status": "progress",
+                            "category": cat,
+                            "month": month,
+                            "current": completed_tasks,
+                            "total": total_tasks,
+                            "message": f"Skipped {cat} {year}-{month} (already embedded)",
+                            "skipped": True,
+                        }
+                    )
+                    continue
+
+                # Download if needed
+                if not is_subject_month_cached(cat, year, month):
+                    await websocket.send_json(
+                        {
+                            "status": "downloading",
+                            "category": cat,
+                            "month": month,
+                            "message": f"Downloading {cat} {year}-{month}...",
+                        }
                     )
 
-            await websocket.send_json(
-                {
-                    "status": "embedding",
-                    "category": cat,
-                    "message": f"Embedding {cat}...",
-                }
-            )
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(
+                        None, download_subject_month, cat, year, month
+                    )
 
-            count = await loop.run_in_executor(None, embed_category, cat, year, month)
-            total_papers += count
+                # Embed
+                await websocket.send_json(
+                    {
+                        "status": "embedding",
+                        "category": cat,
+                        "month": month,
+                        "message": f"Embedding {cat} {year}-{month}...",
+                    }
+                )
 
-            await websocket.send_json(
-                {
-                    "status": "progress",
-                    "category": cat,
-                    "current": i + 1,
-                    "total": total_cats,
-                    "count": count,
-                    "message": f"Done: {cat} ({count} papers)",
-                }
-            )
+                loop = asyncio.get_event_loop()
+                count = await loop.run_in_executor(
+                    None, embed_category_month, cat, year, month
+                )
+                total_papers += count
+
+                await websocket.send_json(
+                    {
+                        "status": "progress",
+                        "category": cat,
+                        "month": month,
+                        "current": completed_tasks,
+                        "total": total_tasks,
+                        "count": count,
+                        "message": f"Done: {cat} {year}-{month} ({count} papers)",
+                    }
+                )
 
         print("Running UMAP...")
         await websocket.send_json(
             {
                 "status": "visualizing",
-                "message": "Running UMAP...",
+                "message": f"Running UMAP on {total_papers} papers...",
             }
         )
 
         loop = asyncio.get_event_loop()
-        df_final = await loop.run_in_executor(None, combine_with_umap, categories, year)
+        df_final = await loop.run_in_executor(
+            None, combine_with_umap, categories, year, months, True
+        )
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = OUTPUT_DIR / "arxiv_embeddings.parquet"
@@ -110,7 +166,9 @@ async def embed_websocket(websocket: WebSocket):
             {
                 "status": "complete",
                 "total_papers": len(df_final),
+                "skipped": skipped_count,
                 "message": f"Complete! {len(df_final)} papers embedded.",
+                "from_cache": False,
             }
         )
 

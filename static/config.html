@@ -15,25 +15,41 @@
         <h1>📚 ArXiv Explorer Configuration</h1>
         <p class="subtitle">Download data by month, then embed categories</p>
 
-        <!-- Dataset Status Card -->
+        <!-- Time Selection Card -->
         <div class="card">
-            <h2>📅 Data by Month (2025)</h2>
-            <div class="download-status not-downloaded" id="dataset-status">
-                Checking...
+            <h2>📅 Select Time Range</h2>
+            <div class="time-selector">
+                <div class="year-selector">
+                    <label for="year-select">Year:</label>
+                    <select id="year-select">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div class="month-selector">
+                    <label>Months:</label>
+                    <div class="month-buttons" id="month-buttons">
+                        <!-- Months will be populated here -->
+                    </div>
+                    <div class="month-actions">
+                        <button class="small-btn" onclick="selectAllMonths()">Select All</button>
+                        <button class="small-btn" onclick="selectNoMonths()">Clear</button>
+                        <button class="small-btn" onclick="selectYTD()">YTD</button>
+                    </div>
+                </div>
             </div>
-            <div class="months-grid" id="months-container">
-                Loading months...
+            <div class="time-status" id="time-status">
+                Select a year and months to see available data
             </div>
         </div>
 
         <!-- Categories Card -->
         <div class="card">
             <h2>Select Categories to Embed</h2>
-            <div id="categories-container"></div>
+            <div id="categories-container">Loading categories...</div>
 
             <div class="estimate" id="estimate" style="display: none;"></div>
 
-            <button id="embed-btn" disabled>Embed 0 papers</button>
+            <button id="embed-btn" disabled>Select categories and time range</button>
 
             <div class="progress-container" id="progress">
                 <div class="progress-bar">
@@ -42,6 +58,12 @@
                 <div class="progress-text" id="progress-text">Initializing...</div>
                 <div class="log" id="log"></div>
             </div>
+        </div>
+
+        <!-- Cache Summary Card -->
+        <div class="card">
+            <h2>📊 Cache Summary</h2>
+            <div id="cache-summary">Loading...</div>
         </div>
     </div>
 
