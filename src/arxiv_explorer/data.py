@@ -6,17 +6,48 @@ from datetime import datetime
 from pathlib import Path
 
 import polars as pl
-
-HF_DATASET_URL = "hf://datasets/nick007x/arxiv-papers/train.parquet"
+from huggingface_hub import hf_hub_download
 
 BASE_DIR = Path(__file__).parents[2]
 OUTPUT_DIR = BASE_DIR / "output"
 CACHE_DIR = OUTPUT_DIR / "cache"
 DATA_DIR = OUTPUT_DIR / "data"
 SUBJECT_CODES_FILE = CACHE_DIR / "subject_codes.json"
+MASTER_PARQUET = DATA_DIR / "arxiv_papers.parquet"
 
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def download_master_dataset() -> Path:
+    """Download the full 1.7GB parquet file from HuggingFace."""
+    if MASTER_PARQUET.exists():
+        print(f"Master dataset already exists: {MASTER_PARQUET}")
+        return MASTER_PARQUET
+    
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    
+    print("Downloading arxiv-papers dataset (1.7GB)...")
+    downloaded_path = hf_hub_download(
+        repo_id="nick007x/arxiv-papers",
+        repo_type="dataset",
+        revision="refs/convert/parquet",
+        filename="default/train/0000.parquet",
+        local_dir=DATA_DIR,
+    )
+    
+    # Move to expected location
+    src = Path(downloaded_path)
+    src.rename(MASTER_PARQUET)
+    
+    # Clean up the nested directories hf_hub_download creates
+    nested_dir = DATA_DIR / "default"
+    if nested_dir.exists():
+        import shutil
+        shutil.rmtree(nested_dir)
+    
+    print(f"Downloaded to {MASTER_PARQUET}")
+    return MASTER_PARQUET
 
 
 def get_current_year_month() -> tuple[str, str]:
@@ -41,35 +72,41 @@ def get_date_pattern(year: str, month: str) -> str:
     return f"{month_name} {year}"
 
 
+def ensure_master_dataset() -> Path:
+    """Ensure master dataset is downloaded."""
+    if not MASTER_PARQUET.exists():
+        download_master_dataset()
+    return MASTER_PARQUET
+
+
 def download_month(year: str, month: str, force: bool = False) -> Path:
     """
-    Download a single month of data from the remote dataset.
-    
-    Uses Polars lazy evaluation to filter remotely and only download
-    the rows we need (~5-20k papers per month vs 2.5M total).
+    Extract a single month of data from the master dataset.
     """
     cache_file = get_month_file(year, month)
     
     current_year, current_month = get_current_year_month()
     is_current_month = (year == current_year and month == current_month)
     
-    # Re-download current month (might have new papers), skip others if cached
     if cache_file.exists() and not force and not is_current_month:
         count = pl.scan_parquet(cache_file).select(pl.len()).collect().item()
         print(f"Month {year}-{month} already cached: {count} papers")
         return cache_file
     
-    pattern = get_date_pattern(year, month)
-    print(f"Downloading {year}-{month} (pattern: '{pattern}')...")
+    # Ensure we have the master dataset
+    ensure_master_dataset()
     
-    # Lazy scan remote, filter, collect only matching rows
+    pattern = get_date_pattern(year, month)
+    print(f"Extracting {year}-{month} (pattern: '{pattern}')...")
+    
+    # Filter from local master file
     df = (
-        pl.scan_parquet(HF_DATASET_URL)
+        pl.scan_parquet(MASTER_PARQUET)
         .filter(pl.col("submission_date").str.contains(pattern))
         .collect()
     )
     
-    print(f"Downloaded {len(df)} papers for {year}-{month}")
+    print(f"Extracted {len(df)} papers for {year}-{month}")
     
     if len(df) > 0:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -80,14 +117,13 @@ def download_month(year: str, month: str, force: bool = False) -> Path:
 
 
 def load_month(year: str, month: str) -> pl.LazyFrame:
-    """Load a month's data, downloading if necessary."""
+    """Load a month's data, extracting from master if necessary."""
     cache_file = get_month_file(year, month)
     
     if not cache_file.exists():
         download_month(year, month)
     
     if not cache_file.exists():
-        # No data for this month
         return pl.LazyFrame()
     
     return pl.scan_parquet(cache_file)
@@ -110,27 +146,6 @@ def load_year(year: str) -> pl.LazyFrame:
     return pl.scan_parquet(files)
 
 
-def estimate_from_remote(year: str, month: str | None = None) -> int:
-    """
-    Get paper count from remote dataset without downloading full data.
-    Only fetches the submission_date column for counting.
-    """
-    if month:
-        pattern = get_date_pattern(year, month)
-    else:
-        pattern = year
-    
-    count = (
-        pl.scan_parquet(HF_DATASET_URL)
-        .filter(pl.col("submission_date").str.contains(pattern))
-        .select(pl.len())
-        .collect()
-        .item()
-    )
-    
-    return count
-
-
 def get_cached_months(year: str) -> list[str]:
     """Get list of months that are cached for a year."""
     months = []
@@ -141,7 +156,6 @@ def get_cached_months(year: str) -> list[str]:
     return months
 
 
-# Subject codes (these rarely change, so cache indefinitely)
 def precompute_subject_codes() -> dict[str, str]:
     """Extract all unique subject codes. Returns {code: full_name}."""
     import re
@@ -154,9 +168,12 @@ def precompute_subject_codes() -> dict[str, str]:
 
     print("Precomputing subject codes (one-time operation)...")
     
-    # Only fetch the subjects column
+    # Ensure we have the master dataset
+    ensure_master_dataset()
+    
+    # Only fetch the subjects column from local file
     df = (
-        pl.scan_parquet(HF_DATASET_URL)
+        pl.scan_parquet(MASTER_PARQUET)
         .select("subjects")
         .unique()
         .collect()

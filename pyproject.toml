@@ -22,6 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
+arxiv-partition = "arxiv_explorer.partition:main"
 arxiv-embed = "arxiv_explorer:run_embed"
 arxiv-serve = "arxiv_explorer:run_serve"
 
@@ -29,3 +30,10 @@ arxiv-serve = "arxiv_explorer:run_serve"
 dev = [
     "ty>=0.0.3",
 ]
+partition = [
+    "datasets>=4.4.2",
+]
+
+[tool.uv]
+default-groups = ["dev", "partition"]
+
