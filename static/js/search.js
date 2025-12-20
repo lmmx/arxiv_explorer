@@ -11,21 +11,27 @@ const Search = (function() {
     function renderResults(results, query) {
         const resultsContainer = $('results');
         
-        resultsContainer.innerHTML = results.map(r => `
-            <div class="paper-card" data-arxiv-id="${r.arxiv_id}">
-                <div class="paper-meta">
-                    <span class="badge ${r.primary_subject.split('.')[0]}">${r.primary_subject}</span>
-                    <span class="badge">${r.submission_date}</span>
-                    <span class="score">${(r.score * 100).toFixed(0)}%</span>
+        resultsContainer.innerHTML = results.map(r => {
+            const color = CategoryColors.getColor(r.primary_subject);
+            return `
+                <div class="paper-card" data-arxiv-id="${r.arxiv_id}">
+                    <div class="paper-meta">
+                        <span class="badge category-badge" style="background: ${color}22; border: 1px solid ${color};">
+                            <span class="color-dot" style="background: ${color};"></span>
+                            ${r.primary_subject}
+                        </span>
+                        <span class="badge">${r.submission_date}</span>
+                        <span class="score">${(r.score * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="paper-title">${escapeHtml(r.title)}</div>
+                    <div class="paper-authors">${escapeHtml(r.authors.join(', '))}</div>
+                    <div class="paper-abstract">${escapeHtml(r.abstract)}</div>
+                    <a href="https://arxiv.org/abs/${r.arxiv_id}" target="_blank" class="arxiv-link">
+                        View on arXiv →
+                    </a>
                 </div>
-                <div class="paper-title">${escapeHtml(r.title)}</div>
-                <div class="paper-authors">${escapeHtml(r.authors.join(', '))}</div>
-                <div class="paper-abstract">${escapeHtml(r.abstract)}</div>
-                <a href="https://arxiv.org/abs/${r.arxiv_id}" target="_blank" class="arxiv-link">
-                    View on arXiv →
-                </a>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
         $('results-header').textContent = `"${query}" → ${results.length} results`;
 
@@ -42,7 +48,6 @@ const Search = (function() {
             });
             
             card.addEventListener('click', (e) => {
-                // Don't pan if clicking the arXiv link
                 if (e.target.classList.contains('arxiv-link')) return;
                 Plot.panToPaper(arxivId);
             });
@@ -68,7 +73,7 @@ const Search = (function() {
 
             renderResults(results, q);
             Plot.setSearchResults(results);
-            $('status').textContent = 'Search complete';
+            updateStatus();
         } catch (err) {
             $('status').textContent = `Error: ${err.message}`;
         }
@@ -82,9 +87,20 @@ const Search = (function() {
         $('results-header').textContent = 'Search results';
     }
 
+    function updateStatus() {
+        const displayed = Plot.getDisplayedCount();
+        const total = Plot.getTotalCount();
+        if (displayed === total) {
+            $('status').textContent = `${total} papers`;
+        } else {
+            $('status').textContent = `${displayed} / ${total} papers`;
+        }
+    }
+
     return {
         search,
         clear,
+        updateStatus,
         init() {
             $('btn').onclick = search;
             $('q').onkeypress = e => { if (e.key === 'Enter') search(); };

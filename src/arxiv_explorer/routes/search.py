@@ -11,7 +11,7 @@ QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 
 @router.get("/search")
-def search(q: str = Query(..., min_length=1), k: int = Query(50, ge=1, le=100)):
+def search(q: str = Query(..., min_length=1), k: int = Query(200, ge=1, le=1000)):
     """Semantic search."""
     df = get_df()
     if df is None:

@@ -7,25 +7,10 @@ const Plot = (function() {
     let xScale, yScale;
     let currentTransform = d3.zoomIdentity;
     let allPapers = [];
-    let displayPapers = []; // THE KEY: only these get rendered
+    let displayPapers = [];
     let searchResults = new Set();
     let highlightedPaperId = null;
     let hideNonHits = true;
-    
-    const subjectColors = {
-        'cs': '#56d364',
-        'physics': '#d29922',
-        'math': '#58a6ff',
-        'astro-ph': '#d29dff',
-        'quant-ph': '#ff6b9d',
-        'cond-mat': '#ffa657',
-        'stat': '#79c0ff',
-    };
-
-    function getSubjectColor(subject) {
-        const prefix = subject.split('.')[0];
-        return subjectColors[prefix] || '#8b949e';
-    }
 
     const zoom = d3.zoom()
         .scaleExtent([0.5, 20])
@@ -75,11 +60,14 @@ const Plot = (function() {
     }
 
     function updateDisplayPapers() {
-        // This is the key function - determines what gets rendered
+        // Apply filters first
+        let filtered = allPapers.filter(p => Filters.filterPaper(p));
+        
+        // Then apply search filter if active
         if (searchResults.size > 0 && hideNonHits) {
-            displayPapers = allPapers.filter(p => searchResults.has(p.arxiv_id));
+            displayPapers = filtered.filter(p => searchResults.has(p.arxiv_id));
         } else {
-            displayPapers = allPapers;
+            displayPapers = filtered;
         }
     }
 
@@ -90,7 +78,7 @@ const Plot = (function() {
             .selectAll('circle')
             .data(displayPapers, d => d.arxiv_id);
     
-        // EXIT: remove non-hits
+        // EXIT
         circles.exit().remove();
     
         // ENTER
@@ -101,11 +89,11 @@ const Plot = (function() {
             .on('mouseenter', handleMouseEnter)
             .on('mouseleave', handleMouseLeave);
     
-        // ENTER + UPDATE
+        // ENTER + UPDATE - use CategoryColors for coloring
         enter.merge(circles)
-            .attr('fill', d => getSubjectColor(d.primary_subject))
+            .attr('fill', d => CategoryColors.getColor(d.primary_subject))
             .attr('opacity', d => {
-                if (highlightedPaperId === d.arxiv_id) return 1;
+                if (highlightedPaperId === d.arxiv_id) return 0.9;
                 return hasSearch ? 1 : 0.6;
             })
             .attr('stroke', d => {
@@ -163,12 +151,21 @@ const Plot = (function() {
             .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     }
 
+    function applyFilters() {
+        updateDisplayPapers();
+        render();
+    }
+
     return {
         async load() {
             const res = await fetch('/api/papers');
             allPapers = await res.json();
-            displayPapers = allPapers; // Initially show all
+            displayPapers = allPapers;
             initializeScales();
+            
+            // Initialize filters with paper data
+            Filters.init(allPapers, applyFilters);
+            
             render();
             return allPapers.length;
         },
@@ -198,6 +195,7 @@ const Plot = (function() {
         highlightPaper,
         unhighlightPaper,
         panToPaper,
+        applyFilters,
         
         resize() {
             initializeScales();
@@ -207,6 +205,14 @@ const Plot = (function() {
 
         getPaperById(arxivId) {
             return allPapers.find(p => p.arxiv_id === arxivId);
+        },
+        
+        getDisplayedCount() {
+            return displayPapers.length;
+        },
+        
+        getTotalCount() {
+            return allPapers.length;
         }
     };
 })();

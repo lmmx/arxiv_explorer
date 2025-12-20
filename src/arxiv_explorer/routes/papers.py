@@ -19,6 +19,7 @@ def get_papers():
             "arxiv_id": r["arxiv_id"],
             "title": r["title"][:100] + "..." if len(r["title"]) > 100 else r["title"],
             "primary_subject": r["primary_subject"],
+            "submission_date": r["submission_date"] if "submission_date" in r else None,
             "x": round(r["x"], 4),
             "y": round(r["y"], 4),
         }

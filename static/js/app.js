@@ -22,7 +22,10 @@ const Tooltip = (function() {
 
     return {
         show(paper) {
-            tooltip.querySelector('.meta').textContent = `${paper.primary_subject} · ${paper.arxiv_id}`;
+            const color = CategoryColors.getColor(paper.primary_subject);
+            tooltip.querySelector('.meta').innerHTML = `
+                <span style="color: ${color};">●</span> ${paper.primary_subject} · ${paper.arxiv_id}
+            `;
             tooltip.querySelector('.title').textContent = paper.title;
             tooltip.classList.add('visible');
         },
@@ -38,7 +41,7 @@ async function init() {
     
     try {
         const count = await Plot.load();
-        $('status').textContent = `${count} papers loaded`;
+        Search.updateStatus();
         Search.init();
         
         // Wire up the hide non-hits toggle
@@ -46,6 +49,7 @@ async function init() {
         toggle.checked = Plot.getHideNonHits();
         toggle.addEventListener('change', (e) => {
             Plot.setHideNonHits(e.target.checked);
+            Search.updateStatus();
         });
     } catch (err) {
         $('status').textContent = `Error: ${err.message}`;

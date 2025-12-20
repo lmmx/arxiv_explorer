@@ -1,3 +1,4 @@
+<!-- static/arxiv.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -27,6 +28,28 @@
             <svg id="plot"></svg>
         </div>
         <aside class="sidebar">
+            <div class="filter-panel" id="filter-panel">
+                <div class="filter-section">
+                    <div class="filter-section-header">
+                        <span class="filter-section-title">Years</span>
+                        <div class="filter-actions">
+                            <button class="filter-action-btn" onclick="Filters.selectAllYears()">All</button>
+                            <button class="filter-action-btn" onclick="Filters.selectNoYears()">None</button>
+                        </div>
+                    </div>
+                    <div class="filter-chips" id="year-filters"></div>
+                </div>
+                <div class="filter-section">
+                    <div class="filter-section-header">
+                        <span class="filter-section-title">Categories</span>
+                        <div class="filter-actions">
+                            <button class="filter-action-btn" onclick="Filters.selectAllCategories()">All</button>
+                            <button class="filter-action-btn" onclick="Filters.selectNoCategories()">None</button>
+                        </div>
+                    </div>
+                    <div class="filter-chips" id="category-filters"></div>
+                </div>
+            </div>
             <div class="sidebar-header" id="results-header">Search results</div>
             <div class="results" id="results"></div>
         </aside>
@@ -42,8 +65,10 @@
         Data: <a href="https://huggingface.co/datasets/permutans/arxiv-papers-by-subject">permutans/arxiv-papers-by-subject</a>
     </footer>
 
+    <script src="/static/js/colors.js"></script>
     <script src="/static/js/plot.js"></script>
     <script src="/static/js/search.js"></script>
+    <script src="/static/js/filters.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
