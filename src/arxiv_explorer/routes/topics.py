@@ -40,11 +40,17 @@ def get_cache_path(cache_key: str) -> Path:
     return TOPICS_CACHE_DIR / f"topics_{cache_key}.json"
 
 
+def count_valid_embeddings(df: pl.DataFrame) -> int:
+    """Count rows with non-null embeddings."""
+    if "embedding" not in df.columns:
+        return 0
+    return df.filter(pl.col("embedding").is_not_null()).height
+
+
 @router.post("/topics/extract")
 async def extract_topics(request: TopicRequest):
     """
     Extract topics from the current dataset using S³.
-
     Returns topic descriptions and document-topic assignments.
     """
     print(f"[topics] Requested n_components: {request.n_components}")
@@ -61,54 +67,75 @@ async def extract_topics(request: TopicRequest):
 
     print(f"[topics] Papers after filter: {len(df)}")
 
-    if len(df) < request.n_components * 2:
+    # Count VALID embeddings (non-null)
+    valid_count = count_valid_embeddings(df)
+    print(f"[topics] Valid embeddings: {valid_count}")
+
+    # Need strictly more documents than components for ICA
+    min_required = request.n_components + 1
+    if valid_count < min_required:
         return {
-            "error": f"Not enough papers ({len(df)}) for {request.n_components} topics. Need at least {request.n_components * 2}."
+            "error": f"Not enough papers with embeddings ({valid_count}) for {request.n_components} topics. Need at least {min_required}."
         }
+
+    # Auto-adjust n_components if necessary
+    max_components = max(2, valid_count - 1)
+    actual_n_components = min(request.n_components, max_components)
+    
+    if actual_n_components != request.n_components:
+        print(f"[topics] Adjusted n_components from {request.n_components} to {actual_n_components}")
 
     # Check cache
     cache_key = get_cache_key(
-        request.n_components, request.year_months, request.categories
+        actual_n_components, request.year_months, request.categories
     )
     cache_path = get_cache_path(cache_key)
 
     if cache_path.exists():
         with open(cache_path) as f:
             cached = json.load(f)
-        # Verify paper count matches (invalidate if dataset changed)
         if cached.get("paper_count") == len(df):
-            print(
-                f"[topics] Returning cached result with {len(cached['topics'])} topics"
-            )
+            print(f"[topics] Returning cached result with {len(cached['topics'])} topics")
             return cached
         else:
             print(f"[topics] Cache invalidated: paper count mismatch")
 
-    # Prepare text column for vocabulary extraction only
-    df_with_text = df.with_columns(
+    # Filter to only rows with valid embeddings for processing
+    df_valid = df.filter(pl.col("embedding").is_not_null())
+    
+    # Prepare text column for vocabulary extraction
+    df_with_text = df_valid.with_columns(
         (pl.col("title") + " " + pl.col("abstract")).str.slice(0, 512).alias("text")
     )
 
-    # Get document-topic weights from existing embeddings
-    result_df = df_with_text.fastembed.s3_topics(
-        embedding_column="embedding",
-        n_components=request.n_components,
-    )
+    print(f"[topics] Running S³ on {len(df_with_text)} papers with {actual_n_components} components...")
 
-    # Get topic descriptions (top terms per topic)
-    # This needs embeddings + text for vocabulary
-    topic_terms = df_with_text.fastembed.extract_topics(
-        embedding_column="embedding",
-        text_column="text",
-        n_components=request.n_components,
-        model_name=MODEL_ID,  # Only used for embedding vocabulary words
-        top_n=10,
-    )
+    try:
+        # Get document-topic weights from existing embeddings
+        result_df = df_with_text.fastembed.s3_topics(
+            embedding_column="embedding",
+            n_components=actual_n_components,
+        )
+        print(f"[topics] S³ fit complete, extracting topic terms...")
+
+        # Get topic descriptions (top terms per topic)
+        # This is the slow part - consider caching or limiting vocab
+        topic_terms = df_with_text.fastembed.extract_topics(
+            embedding_column="embedding",
+            text_column="text",
+            n_components=actual_n_components,
+            model_name=MODEL_ID,
+            top_n=10,
+        )
+        print(f"[topics] Topic term extraction complete")
+
+    except Exception as e:
+        print(f"[topics] Error during extraction: {e}")
+        return {"error": f"Topic extraction failed: {str(e)}"}
 
     # Build response
     topics = []
     for i, terms in enumerate(topic_terms):
-        # Count documents with this as dominant topic
         doc_count = len(result_df.filter(pl.col("dominant_topic") == i))
         topics.append(
             {
@@ -118,7 +145,7 @@ async def extract_topics(request: TopicRequest):
             }
         )
 
-    # Build document assignments (arxiv_id -> topic weights)
+    # Build document assignments
     assignments = {}
     for row in result_df.select(
         "arxiv_id", "topic_weights", "dominant_topic"
@@ -131,8 +158,9 @@ async def extract_topics(request: TopicRequest):
     response = {
         "topics": topics,
         "assignments": assignments,
-        "n_components": request.n_components,
+        "n_components": actual_n_components,
         "paper_count": len(df),
+        "valid_embedding_count": valid_count,
         "cache_key": cache_key,
     }
 
@@ -141,6 +169,7 @@ async def extract_topics(request: TopicRequest):
     with open(cache_path, "w") as f:
         json.dump(response, f)
 
+    print(f"[topics] Extraction complete: {len(topics)} topics")
     return response
 
 
@@ -151,8 +180,12 @@ async def topics_status():
     if df is None:
         return {"available": False, "reason": "No embeddings loaded"}
 
+    valid_count = count_valid_embeddings(df)
+    
     return {
-        "available": True,
+        "available": valid_count > 2,
         "paper_count": len(df),
-        "suggested_topics": min(max(3, len(df) // 100), 15),  # Heuristic
+        "valid_embedding_count": valid_count,
+        "max_topics": max(2, valid_count - 1),
+        "suggested_topics": min(max(3, valid_count // 100), 15),
     }
