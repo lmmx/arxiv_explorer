@@ -1,4 +1,4 @@
-<!-- static/arxiv.html -->
+<!-- static/arxiv.html - Updated -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/static/css/filters.css">
     <link rel="stylesheet" href="/static/css/papers.css">
     <link rel="stylesheet" href="/static/css/tooltip.css">
+    <link rel="stylesheet" href="/static/css/topics.css">
 </head>
 <body>
     <header>
@@ -54,6 +55,10 @@
                     <div class="filter-chips" id="category-filters"></div>
                 </div>
             </div>
+            
+            <!-- Topics Panel -->
+            <div class="topics-panel" id="topics-panel"></div>
+            
             <div class="sidebar-header" id="results-header">Search results</div>
             <div class="results" id="results"></div>
         </aside>
@@ -70,6 +75,7 @@
     </footer>
 
     <script src="/static/js/colors.js"></script>
+    <script src="/static/js/topics.js"></script>
     <script src="/static/js/plot.js"></script>
     <script src="/static/js/search.js"></script>
     <script src="/static/js/filters.js"></script>

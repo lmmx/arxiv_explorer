@@ -15,12 +15,13 @@ from .data import OUTPUT_DIR, get_subject_codes
 from .embed_papers import MODEL_ID, add_year_month_column
 from .routes import (
     categories_router,
-    months_router,
     download_router,
     embed_router,
-    search_router,
+    months_router,
     papers_router,
+    search_router,
     stats_router,
+    topics_router,
 )
 from .routes.state import set_df, set_subject_codes_cache
 
@@ -64,6 +65,7 @@ app.include_router(embed_router)
 app.include_router(search_router)
 app.include_router(papers_router)
 app.include_router(stats_router)
+app.include_router(topics_router)
 
 
 @app.get("/config")

@@ -1,4 +1,4 @@
-// static/js/plot.js
+// static/js/plot.js - Updated version with topic support
 const Plot = (function() {
     const svg = d3.select('#plot');
     const container = svg.append('g');
@@ -6,10 +6,16 @@ const Plot = (function() {
     
     let xScale, yScale;
     let currentTransform = d3.zoomIdentity;
-    let allPapers = [];        // All papers from current API response
+    let allPapers = [];
     let searchResults = new Set();
     let highlightedPaperId = null;
     let hideNonHits = true;
+    
+    // Topic-related state
+    let topicAssignments = {};  // arxiv_id -> { weights, dominant }
+    let topicColorFn = null;
+    let colorMode = 'category';  // 'category' or 'topic'
+    let selectedTopicId = null;
 
     const zoom = d3.zoom()
         .scaleExtent([0.5, 20])
@@ -61,11 +67,32 @@ const Plot = (function() {
     }
 
     function getDisplayPapers() {
-        // If we have search results and hideNonHits, only show those
+        let papers = allPapers;
+        
+        // Filter by search results if applicable
         if (searchResults.size > 0 && hideNonHits) {
-            return allPapers.filter(p => searchResults.has(p.arxiv_id));
+            papers = papers.filter(p => searchResults.has(p.arxiv_id));
         }
-        return allPapers;
+        
+        // Filter by selected topic if applicable
+        if (selectedTopicId !== null && Object.keys(topicAssignments).length > 0) {
+            papers = papers.filter(p => {
+                const assignment = topicAssignments[p.arxiv_id];
+                return assignment && assignment.dominant === selectedTopicId;
+            });
+        }
+        
+        return papers;
+    }
+
+    function getPointColor(paper) {
+        if (colorMode === 'topic' && topicColorFn) {
+            const assignment = topicAssignments[paper.arxiv_id];
+            if (assignment) {
+                return topicColorFn(assignment.dominant);
+            }
+        }
+        return CategoryColors.getColor(paper.primary_subject);
     }
 
     function render() {
@@ -76,10 +103,8 @@ const Plot = (function() {
             .selectAll('circle')
             .data(displayPapers, d => d.arxiv_id);
     
-        // EXIT
         circles.exit().remove();
     
-        // ENTER
         const enter = circles.enter()
             .append('circle')
             .attr('cx', d => xScale(d.x))
@@ -87,11 +112,10 @@ const Plot = (function() {
             .on('mouseenter', handleMouseEnter)
             .on('mouseleave', handleMouseLeave);
     
-        // ENTER + UPDATE
         enter.merge(circles)
             .attr('cx', d => xScale(d.x))
             .attr('cy', d => yScale(d.y))
-            .attr('fill', d => CategoryColors.getColor(d.primary_subject))
+            .attr('fill', d => getPointColor(d))
             .attr('opacity', d => {
                 if (highlightedPaperId === d.arxiv_id) return 0.9;
                 return hasSearch ? 1 : 0.6;
@@ -151,7 +175,6 @@ const Plot = (function() {
             .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     }
 
-    // Load papers from API with optional filters
     async function loadPapers(filterParams) {
         let url = '/api/papers';
         if (filterParams && filterParams.toString()) {
@@ -168,17 +191,19 @@ const Plot = (function() {
     return {
         async load() {
             const count = await loadPapers();
-            // Initialize filters with paper data
             Filters.init(allPapers, () => this.applyFilters());
             return count;
         },
         
         async applyFilters() {
-            // Re-fetch papers from server with new filters
             const filterParams = Filters.getFilterParams();
             await loadPapers(filterParams);
             
-            // If there was a search, re-run it with the new filters
+            // Clear topic data when filters change
+            topicAssignments = {};
+            selectedTopicId = null;
+            Topics.clear();
+            
             if (Search.hasActiveQuery()) {
                 await Search.rerunSearch();
             }
@@ -203,6 +228,32 @@ const Plot = (function() {
         
         getHideNonHits() {
             return hideNonHits;
+        },
+        
+        // Topic-related methods
+        setTopicData(assignments, colorFn) {
+            topicAssignments = assignments;
+            topicColorFn = colorFn;
+            render();
+        },
+        
+        clearTopicData() {
+            topicAssignments = {};
+            topicColorFn = null;
+            selectedTopicId = null;
+            colorMode = 'category';
+            render();
+        },
+        
+        setColorMode(mode) {
+            colorMode = mode;
+            render();
+        },
+        
+        setSelectedTopic(topicId) {
+            selectedTopicId = topicId;
+            render();
+            Search.updateStatus();
         },
         
         highlightPaper,

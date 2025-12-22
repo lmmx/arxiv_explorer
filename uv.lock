@@ -148,7 +148,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "huggingface-hub", specifier = ">=1.2.3" },
     { name = "numpy", specifier = ">=2.3.5" },
-    { name = "polars-fastembed", extras = ["cuda"], specifier = ">=0.1.10" },
+    { name = "polars-fastembed", extras = ["cuda"], specifier = ">=0.1.13" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "umap-learn", specifier = ">=0.5.9.post2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
@@ -779,19 +779,19 @@ wheels = [
 
 [[package]]
 name = "polars-fastembed"
-version = "0.1.10"
+version = "0.1.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "polars" },
     { name = "polars-distance" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c7/a1/1bcda8950290fe1ba318c40a617e4d5528deae4549400625a1997425c4a8/polars_fastembed-0.1.10.tar.gz", hash = "sha256:91a0aec975331306dd566607f376d2ea21aea6f6d1e90155be55ca69ec9ecc65", size = 109652, upload-time = "2025-12-17T19:11:53.585Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/0b/14960574471e05feed4c680998ff7e3f2239f296c2e6a268ddec4da1135f/polars_fastembed-0.1.13.tar.gz", hash = "sha256:b83bcaf8490be794b53d9e6c66e7bbca90429495a26a15568ab5d84691fe2884", size = 116501, upload-time = "2025-12-22T17:49:22.308Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/10/8166f7250c9d2fb26c2aa68f0209104f53ead381a45b824e2d86926d60f9/polars_fastembed-0.1.10-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2c27796b0f92f213a3a315388557c7919edf5820f4a58e2e1583be760e233667", size = 5354616, upload-time = "2025-12-17T19:11:52.028Z" },
-    { url = "https://files.pythonhosted.org/packages/f8/97/a82514f3b6a293de16027a5b170383af5c540e8d0ede137143fb4b9232a0/polars_fastembed-0.1.10-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:b50a84805d176de74b48d29255dab297f3a329955b79207902e7520d7f883c38", size = 4635301, upload-time = "2025-12-17T19:11:50.147Z" },
-    { url = "https://files.pythonhosted.org/packages/c9/1d/bacff67c8adf3ee2569b25ee34f721e27d8f9a17be58187f9cf72ea03665/polars_fastembed-0.1.10-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:3efd45331dcfc93dfbd2486b7b41032abe2d941aa1865ae2ea0490a38d1cb759", size = 7175835, upload-time = "2025-12-17T19:11:40.619Z" },
-    { url = "https://files.pythonhosted.org/packages/de/e8/97cd5dec9a4b826820145567f933d85b2e2369667db7c05317ac8e4c6d55/polars_fastembed-0.1.10-cp38-abi3-manylinux_2_28_i686.whl", hash = "sha256:a89d224ef638ab42b6401812fa1a3751048abd5a6621096919d8176bc14339da", size = 7399882, upload-time = "2025-12-17T19:11:48.134Z" },
-    { url = "https://files.pythonhosted.org/packages/91/d0/ff5072445b1935c12607641fe673cdb5329c3fadeb29407243f1bb63e590/polars_fastembed-0.1.10-cp38-abi3-win_amd64.whl", hash = "sha256:bbc0b46320d661bcab75629cb120e2ec6b8c9201bf2f29189e173e4ebbe2856c", size = 5231421, upload-time = "2025-12-17T19:11:55.026Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/06/6728869e67be827ab9fc83db07c3f973fc61bd77de916d47d02970a1a09b/polars_fastembed-0.1.13-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:307937d04b65fd5d8df6579c129104b78c106e0bbfa74692ee0b9595cd653bbe", size = 5398917, upload-time = "2025-12-22T17:49:21.127Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/ea/4ac91f9d198688263c1403e4e9d4cb7e0cd2f59ac8fae97705ae21c78546/polars_fastembed-0.1.13-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:d8491a5936623959441f8405f10f8dd9607422f671184af27fd4ea5addf529fe", size = 4655003, upload-time = "2025-12-22T17:49:19.465Z" },
+    { url = "https://files.pythonhosted.org/packages/73/91/3ba612c863a597d6848cc4f0ec1dc1e557cd85127b0adb00f0b3f8647a8e/polars_fastembed-0.1.13-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:3005c01a7d549dbc49e0dfae0623abe3839b0366ba65faccc4403a9dccf38b8f", size = 7250957, upload-time = "2025-12-22T17:49:14.252Z" },
+    { url = "https://files.pythonhosted.org/packages/38/61/dc0eee08ce76350f2169041729cba5b7c0c29a53cfa2db199d055973594d/polars_fastembed-0.1.13-cp38-abi3-manylinux_2_28_i686.whl", hash = "sha256:3b57281f7100c16ffdda0c50f44dc26a384667de270bdf4987ae7d1932ff2f8f", size = 7495266, upload-time = "2025-12-22T17:49:18.182Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/9b/56c72d324ea68eb1e9c7d88514c24c1386b303613b6a2a505f896371d54b/polars_fastembed-0.1.13-cp38-abi3-win_amd64.whl", hash = "sha256:1cb73cf156856d95b8a59f42bd8f5c2a87a42a04324b3fcf396f66f22642c43b", size = 5280222, upload-time = "2025-12-22T17:49:23.082Z" },
 ]
 
 [package.optional-dependencies]

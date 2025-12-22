@@ -1,4 +1,4 @@
-// static/js/app.js
+// static/js/app.js - Updated
 const $ = id => document.getElementById(id);
 
 function debounce(fn, ms) {
@@ -22,10 +22,21 @@ const Tooltip = (function() {
 
     return {
         show(paper) {
-            const color = CategoryColors.getColor(paper.primary_subject);
-            tooltip.querySelector('.meta').innerHTML = `
-                <span style="color: ${color};">●</span> ${paper.primary_subject} · ${paper.arxiv_id}
-            `;
+            const color = Topics.getColorMode() === 'topic' 
+                ? (Topics.getAssignment(paper.arxiv_id) 
+                    ? Topics.getTopicColor(Topics.getAssignment(paper.arxiv_id).dominant)
+                    : CategoryColors.getColor(paper.primary_subject))
+                : CategoryColors.getColor(paper.primary_subject);
+            
+            let metaHtml = `<span style="color: ${color};">●</span> ${paper.primary_subject} · ${paper.arxiv_id}`;
+            
+            // Add topic info if available
+            const topicAssignment = Topics.getAssignment(paper.arxiv_id);
+            if (topicAssignment) {
+                metaHtml += ` · Topic ${topicAssignment.dominant + 1}`;
+            }
+            
+            tooltip.querySelector('.meta').innerHTML = metaHtml;
             tooltip.querySelector('.title').textContent = paper.title;
             tooltip.classList.add('visible');
         },
@@ -41,10 +52,10 @@ async function init() {
     
     try {
         const count = await Plot.load();
+        Topics.init();
         Search.updateStatus();
         Search.init();
         
-        // Wire up the hide non-hits toggle
         const toggle = $('hide-non-hits');
         toggle.checked = Plot.getHideNonHits();
         toggle.addEventListener('change', (e) => {
